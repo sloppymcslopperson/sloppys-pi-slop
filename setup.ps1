@@ -1,0 +1,404 @@
+#!/usr/bin/env pwsh
+#
+# Install/update Pi and the addons kept in this workspace.
+#
+# Usage: ./setup.ps1 [-DryRun] [-SkipUpdate] [-Verbose] [-Yes]
+#
+param(
+	[Alias('dry-run')][switch]$DryRun,
+	[Alias('skip-update')][switch]$SkipUpdate,
+	[switch]$Verbose,
+	[switch]$Yes,
+	[switch]$Help
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+$onWindows = ([Environment]::GetEnvironmentVariable('OS') -eq 'Windows_NT')
+$userProfile = [Environment]::GetEnvironmentVariable('USERPROFILE')
+$homeEnv = [Environment]::GetEnvironmentVariable('HOME')
+
+$HomeDir = ''
+if ($onWindows -and $userProfile) {
+	$HomeDir = $userProfile
+} elseif ($homeEnv) {
+	$HomeDir = $homeEnv
+} else {
+	$HomeDir = $HOME
+}
+
+function Write-Info {
+	param([string]$Message)
+	Write-Host $Message
+}
+
+function Write-VerboseInfo {
+	param([string]$Message)
+	if ($Verbose) {
+		Write-Host "  $Message"
+	}
+}
+
+function Fail {
+	param([string]$Message)
+	throw "error: $Message"
+}
+
+function Show-Usage {
+	@'
+setup.ps1 - set up Pi with the local addons
+
+Usage:
+  ./setup.ps1 [-DryRun] [-SkipUpdate] [-Verbose] [-Yes]
+  ./setup.ps1 [--dry-run] [--skip-update] [--verbose] [--yes]
+
+Options:
+  -DryRun       Show what would happen without changing anything
+  -SkipUpdate   Do not run "pi update" or "pi update --extensions"
+  -Verbose      Show extra command detail
+  -Yes          Non-interactive mode (accepted for convenience)
+  -Help         Show this help
+
+Environment:
+  FIT_PI_SRC          Path to the FIT_pi package
+  QUESTIONNAIRE_SRC   Path to the pi_questionare repository
+
+Without overrides, the script searches $HOME, $HOME/dev, then
+$HOME/dev/sin for a directory named FIT_pi and a directory named
+pi_questionare. Missing or ambiguous matches are an error.
+
+The questionnaire is installed as a package when its repository has a
+Pi package manifest. Until then, questionnaire.ts is copied into
+$HOME/.pi/agent/extensions/.
+'@ | Write-Host
+}
+
+function Find-NamedDirs {
+	param(
+		[string]$Name,
+		[int]$MaxDepth = 3
+	)
+
+	$roots = @(
+		$HomeDir,
+		(Join-Path $HomeDir 'dev'),
+		(Join-Path $HomeDir 'dev/sin')
+	)
+	$seen = @{}
+	$results = New-Object System.Collections.Generic.List[string]
+
+	foreach ($root in $roots) {
+		if (-not (Test-Path -LiteralPath $root -PathType Container)) {
+			continue
+		}
+
+		$resolvedRoot = (Resolve-Path -LiteralPath $root).Path
+		$queue = New-Object System.Collections.Generic.Queue[object]
+		$queue.Enqueue([pscustomobject]@{ Path = $resolvedRoot; Depth = 0 })
+
+		while ($queue.Count -gt 0) {
+			$current = $queue.Dequeue()
+			$leaf = Split-Path -Leaf $current.Path
+
+			if ($leaf -eq $Name) {
+				$key = $current.Path.ToLowerInvariant()
+				if (-not $seen.ContainsKey($key)) {
+					$seen[$key] = $true
+					[void]$results.Add($current.Path)
+				}
+			}
+
+			if ($current.Depth -ge $MaxDepth) {
+				continue
+			}
+
+			$children = @(Get-ChildItem -LiteralPath $current.Path -Directory -ErrorAction SilentlyContinue)
+			foreach ($child in $children) {
+				if ($child.Name -in @('.git', 'node_modules', '.pi', '.cache', '.local')) {
+					continue
+				}
+				if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+					continue
+				}
+				$queue.Enqueue([pscustomobject]@{ Path = $child.FullName; Depth = $current.Depth + 1 })
+			}
+		}
+	}
+
+	return @($results | Sort-Object -Unique)
+}
+
+function Test-FitPi {
+	param([string]$Dir)
+	$packageJson = Join-Path $Dir 'package.json'
+	if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) {
+		return $false
+	}
+	$text = Get-Content -LiteralPath $packageJson -Raw
+	return ($text -match '"name"\s*:\s*"pi-fit"' -or $text -match '"pi"\s*:')
+}
+
+function Test-QuestionnairePackage {
+	param([string]$Dir)
+	$packageJson = Join-Path $Dir 'package.json'
+	if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) {
+		return $false
+	}
+	$text = Get-Content -LiteralPath $packageJson -Raw
+	return ($text -match '"pi"\s*:')
+}
+
+function Test-Questionnaire {
+	param([string]$Dir)
+	return ((Test-Path -LiteralPath (Join-Path $Dir 'questionnaire.ts') -PathType Leaf) -or (Test-QuestionnairePackage $Dir))
+}
+
+function Resolve-Addon {
+	param(
+		[string]$EnvName,
+		[string]$Label,
+		[string]$DirName,
+		[string]$Override,
+		[scriptblock]$Validator
+	)
+
+	$candidate = $Override
+	if (-not $candidate) {
+		$candidate = [Environment]::GetEnvironmentVariable($EnvName)
+	}
+
+	if ($candidate) {
+		if (-not (Test-Path -LiteralPath $candidate -PathType Container)) {
+			Fail "$EnvName is not a directory: $candidate"
+		}
+		$resolved = (Resolve-Path -LiteralPath $candidate).Path
+		if (-not (& $Validator $resolved)) {
+			Fail "$EnvName does not look like $Label`: $candidate"
+		}
+		return $resolved
+	}
+
+	$found = @(Find-NamedDirs -Name $DirName)
+	if ($found.Count -eq 0) {
+		Fail "could not find $Label. Set $EnvName to its directory."
+	}
+	if ($found.Count -gt 1) {
+		$candidateList = ($found | ForEach-Object { "  $_" }) -join [Environment]::NewLine
+		Fail "found multiple $Label candidates:$([Environment]::NewLine)$candidateList$([Environment]::NewLine)Set $EnvName to choose one."
+	}
+
+	$resolved = $found[0]
+	if (-not (& $Validator $resolved)) {
+		Fail "found $Label but it does not look valid: $resolved"
+	}
+	return $resolved
+}
+
+function Resolve-Pi {
+	$command = Get-Command pi -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+	if ($command) {
+		return $command.Path
+	}
+
+	foreach ($name in @('pi', 'pi.exe', 'pi.cmd', 'pi.ps1')) {
+		$candidate = Join-Path $HomeDir ".pi/agent/bin/$name"
+		if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+			return $candidate
+		}
+	}
+
+	return $null
+}
+
+function Install-Pi {
+	if ($DryRun) {
+		Write-Info "[dry-run] would install Pi from https://pi.dev/install.ps1"
+		return
+	}
+
+	Write-VerboseInfo 'installing Pi from pi.dev'
+	$installer = Invoke-RestMethod -Uri 'https://pi.dev/install.ps1' -UseBasicParsing
+	Invoke-Expression $installer
+}
+
+function Invoke-External {
+	param(
+		[string]$FilePath,
+		[string[]]$Arguments
+	)
+
+	$display = "$FilePath $($Arguments -join ' ')"
+	if ($DryRun) {
+		Write-Info "[dry-run] would run: $display"
+		return
+	}
+
+	Write-VerboseInfo "running: $display"
+	$global:LASTEXITCODE = 0
+	& $FilePath @Arguments
+	if ($LASTEXITCODE -ne 0) {
+		Fail "command failed with exit code $LASTEXITCODE`: $display"
+	}
+}
+
+function Backup-File {
+	param([string]$Target)
+
+	if (-not (Test-Path -LiteralPath $Target)) {
+		return
+	}
+
+	$stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+	$backup = "$Target.bak-$stamp"
+	$n = 1
+	while (Test-Path -LiteralPath $backup) {
+		$backup = "$Target.bak-$stamp-$n"
+		$n++
+	}
+
+	if ($DryRun) {
+		Write-Info "[dry-run] would back up $Target -> $backup"
+		return
+	}
+
+	Copy-Item -LiteralPath $Target -Destination $backup -Force
+	Write-VerboseInfo "backed up $Target -> $backup"
+}
+
+function Test-SameFile {
+	param(
+		[string]$Source,
+		[string]$Destination
+	)
+
+	if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
+		return $false
+	}
+
+	$sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
+	$destinationHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
+	return ($sourceHash -eq $destinationHash)
+}
+
+function Copy-IfChanged {
+	param(
+		[string]$Source,
+		[string]$Destination
+	)
+
+	if (Test-SameFile -Source $Source -Destination $Destination) {
+		Write-VerboseInfo "unchanged: $Destination"
+		return
+	}
+
+	if (Test-Path -LiteralPath $Destination) {
+		Backup-File -Target $Destination
+	}
+
+	if ($DryRun) {
+		Write-Info "[dry-run] would copy $Source -> $Destination"
+		return
+	}
+
+	$destinationDir = Split-Path -Parent $Destination
+	if (-not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
+		New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
+	}
+	Copy-Item -LiteralPath $Source -Destination $Destination -Force
+	Write-VerboseInfo "copied $Source -> $Destination"
+}
+
+if ($Help) {
+	Show-Usage
+	return
+}
+
+$fitPiOverride = [Environment]::GetEnvironmentVariable('FIT_PI_SRC')
+$questionnaireOverride = [Environment]::GetEnvironmentVariable('QUESTIONNAIRE_SRC')
+
+$fitPiSrc = Resolve-Addon `
+	-EnvName 'FIT_PI_SRC' `
+	-Label 'FIT_pi package' `
+	-DirName 'FIT_pi' `
+	-Override $fitPiOverride `
+	-Validator ${function:Test-FitPi}
+
+$questionnaireSrc = Resolve-Addon `
+	-EnvName 'QUESTIONNAIRE_SRC' `
+	-Label 'pi_questionare repository' `
+	-DirName 'pi_questionare' `
+	-Override $questionnaireOverride `
+	-Validator ${function:Test-Questionnaire}
+
+Write-Info "FIT_pi: $fitPiSrc"
+Write-Info "Questionnaire: $questionnaireSrc"
+
+$piBinary = Resolve-Pi
+if (-not $piBinary) {
+	if ($DryRun) {
+		Write-Info '[dry-run] Pi is not installed; would install it'
+	} else {
+		Write-Info 'Pi not found; installing...'
+		Install-Pi
+		$piBinary = Resolve-Pi
+		if (-not $piBinary) {
+			Fail 'Pi installation finished but pi was not found'
+		}
+	}
+} else {
+	Write-Info "Pi: $piBinary"
+}
+
+if (-not $SkipUpdate) {
+	if ($piBinary) {
+		Write-Info 'Updating Pi...'
+		Invoke-External -FilePath $piBinary -Arguments @('update')
+		Write-Info 'Updating Pi packages...'
+		Invoke-External -FilePath $piBinary -Arguments @('update', '--extensions')
+	} else {
+		Write-Info '[dry-run] would run: pi update'
+		Write-Info '[dry-run] would run: pi update --extensions'
+	}
+} else {
+	Write-Info 'Skipping Pi update (-SkipUpdate)'
+}
+
+Write-Info 'Installing FIT_pi package...'
+if ($piBinary) {
+	Invoke-External -FilePath $piBinary -Arguments @('install', $fitPiSrc)
+} else {
+	Write-Info "[dry-run] would run: pi install `"$fitPiSrc`""
+}
+
+if (Test-QuestionnairePackage -Dir $questionnaireSrc) {
+	Write-Info 'Installing questionnaire package...'
+	if ($piBinary) {
+		Invoke-External -FilePath $piBinary -Arguments @('install', $questionnaireSrc)
+	} else {
+		Write-Info "[dry-run] would run: pi install `"$questionnaireSrc`""
+	}
+
+	$oldExtension = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'
+	if (Test-Path -LiteralPath $oldExtension) {
+		Write-Info 'Removing old questionnaire extension copy to avoid duplicate registration...'
+		Backup-File -Target $oldExtension
+		if ($DryRun) {
+			Write-Info "[dry-run] would remove $oldExtension"
+		} else {
+			Remove-Item -LiteralPath $oldExtension -Force
+			Write-VerboseInfo "removed $oldExtension"
+		}
+	}
+} else {
+	Write-Info 'Installing questionnaire extension (package not available yet)...'
+	$questionnaireFile = Join-Path $questionnaireSrc 'questionnaire.ts'
+	$extensionDestination = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'
+	Copy-IfChanged -Source $questionnaireFile -Destination $extensionDestination
+}
+
+$piDisplay = $piBinary
+if (-not $piDisplay) {
+	$piDisplay = 'pi'
+}
+Write-Info "Pi setup complete. Run: $piDisplay"
