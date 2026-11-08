@@ -37,9 +37,9 @@ Without overrides, the script searches \$HOME, \$HOME/dev, then
 \$HOME/dev/sin for a directory named FIT_pi and a directory named
 pi_questionare. Missing or ambiguous matches are an error.
 
-The questionnaire is installed as a package when its repository has a
-Pi package manifest. Until then, questionnaire.ts is copied into
-\$HOME/.pi/agent/extensions/.
+The questionnaire repository must be a Pi package with a manifest under
+its "pi" key. It is installed with pi install. An older bare extension copy
+in \$HOME/.pi/agent/extensions/ is backed up and removed.
 EOF
 }
 
@@ -126,7 +126,7 @@ validate_fit_pi() {
 
 validate_questionnaire() {
 	local dir="$1"
-	[ -f "$dir/questionnaire.ts" ] || is_questionnaire_package "$dir"
+	is_questionnaire_package "$dir"
 }
 
 discover_addon() {
@@ -231,31 +231,6 @@ backup_file() {
 	verbose "backed up $target -> $backup"
 }
 
-copy_if_changed() {
-	local source="$1"
-	local destination="$2"
-	local destination_dir
-
-	if [ -f "$destination" ] && cmp -s "$source" "$destination"; then
-		verbose "unchanged: $destination"
-		return 0
-	fi
-
-	if [ -e "$destination" ]; then
-		backup_file "$destination"
-	fi
-
-	if [ "$DRY_RUN" -eq 1 ]; then
-		log "[dry-run] would copy $source -> $destination"
-		return 0
-	fi
-
-	destination_dir=$(dirname "$destination")
-	mkdir -p "$destination_dir"
-	cp -p "$source" "$destination"
-	verbose "copied $source -> $destination"
-}
-
 main() {
 	local old_extension
 	local pi_install_cmd
@@ -263,7 +238,7 @@ main() {
 	parse_args "$@"
 
 	FIT_PI_SRC=$(discover_addon "FIT_pi package" "FIT_PI_SRC" "FIT_pi" "$FIT_PI_SRC" validate_fit_pi)
-	QUESTIONNAIRE_SRC=$(discover_addon "pi_questionare repository" "QUESTIONNAIRE_SRC" "pi_questionare" "$QUESTIONNAIRE_SRC" validate_questionnaire)
+	QUESTIONNAIRE_SRC=$(discover_addon "pi_questionare package" "QUESTIONNAIRE_SRC" "pi_questionare" "$QUESTIONNAIRE_SRC" validate_questionnaire)
 
 	log "FIT_pi: $FIT_PI_SRC"
 	log "Questionnaire: $QUESTIONNAIRE_SRC"
@@ -303,28 +278,23 @@ main() {
 		log "[dry-run] would run: pi install \"$FIT_PI_SRC\""
 	fi
 
-	if is_questionnaire_package "$QUESTIONNAIRE_SRC"; then
-		log "Installing questionnaire package..."
-		if [ -n "$PI_BIN" ]; then
-			run "$PI_BIN" install "$QUESTIONNAIRE_SRC"
-		else
-			log "[dry-run] would run: pi install \"$QUESTIONNAIRE_SRC\""
-		fi
-
-		old_extension="$HOME/.pi/agent/extensions/questionnaire.ts"
-		if [ -e "$old_extension" ]; then
-			log "Removing old questionnaire extension copy to avoid duplicate registration..."
-			backup_file "$old_extension"
-			if [ "$DRY_RUN" -eq 1 ]; then
-				log "[dry-run] would remove $old_extension"
-			else
-				rm -f "$old_extension"
-				verbose "removed $old_extension"
-			fi
-		fi
+	log "Installing questionnaire package..."
+	if [ -n "$PI_BIN" ]; then
+		run "$PI_BIN" install "$QUESTIONNAIRE_SRC"
 	else
-		log "Installing questionnaire extension (package not available yet)..."
-		copy_if_changed "$QUESTIONNAIRE_SRC/questionnaire.ts" "$HOME/.pi/agent/extensions/questionnaire.ts"
+		log "[dry-run] would run: pi install \"$QUESTIONNAIRE_SRC\""
+	fi
+
+	old_extension="$HOME/.pi/agent/extensions/questionnaire.ts"
+	if [ -e "$old_extension" ]; then
+		log "Removing old questionnaire extension copy to avoid duplicate registration..."
+		backup_file "$old_extension"
+		if [ "$DRY_RUN" -eq 1 ]; then
+			log "[dry-run] would remove $old_extension"
+		else
+			rm -f "$old_extension"
+			verbose "removed $old_extension"
+		fi
 	fi
 
 	pi_install_cmd="$PI_BIN"

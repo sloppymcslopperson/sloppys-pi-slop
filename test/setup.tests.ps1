@@ -99,7 +99,7 @@ function New-Case {
 	$log = Join-Path $caseRoot 'pi.log'
 
 	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/FIT_pi') -Force | Out-Null
-	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/sin/pi_questionare') -Force | Out-Null
+	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/sin/pi_questionare/extensions') -Force | Out-Null
 	New-Item -ItemType Directory -Path $bin -Force | Out-Null
 
 	Set-Content -LiteralPath (Join-Path $homeDir 'dev/FIT_pi/package.json') -Value @'
@@ -109,7 +109,14 @@ function New-Case {
 }
 '@
 
-	Set-Content -LiteralPath (Join-Path $homeDir 'dev/sin/pi_questionare/questionnaire.ts') -Value @'
+	Set-Content -LiteralPath (Join-Path $homeDir 'dev/sin/pi_questionare/package.json') -Value @'
+{
+  "name": "@sloppymcslopperson/pi-questions",
+  "pi": { "extensions": ["./extensions/questionnaire.ts"] }
+}
+'@
+
+	Set-Content -LiteralPath (Join-Path $homeDir 'dev/sin/pi_questionare/extensions/questionnaire.ts') -Value @'
 export default function questionnaire() {
 	return undefined;
 }
@@ -202,7 +209,7 @@ function Invoke-Setup {
 	}
 }
 
-function Test-InstallAndCopy {
+function Test-InstallPackages {
 	$case = New-Case
 	$result = Invoke-Setup -Case $case -Arguments @('-SkipUpdate', '-Yes')
 	if (-not $result.Success) {
@@ -212,11 +219,10 @@ function Test-InstallAndCopy {
 	Pass 'basic setup succeeds'
 
 	$fitPiPath = "$($case.Home)/dev/FIT_pi".Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$questionnairePath = "$($case.Home)/dev/sin/pi_questionare".Replace('/', [IO.Path]::DirectorySeparatorChar)
 	Assert-Contains -Path $case.Log -Needle "install $fitPiPath" -Message 'installs FIT_pi by discovered path'
-	$extension = Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts'
-	Assert-File -Path $extension -Message 'copies questionnaire extension'
-	$source = Get-Text -Path (Join-Path $case.Home 'dev/sin/pi_questionare/questionnaire.ts')
-	Assert-Equals -Actual (Get-Text -Path $extension) -Expected $source -Message 'questionnaire copy matches source'
+	Assert-Contains -Path $case.Log -Needle "install $questionnairePath" -Message 'installs questionnaire package by discovered path'
+	Assert-NoFile -Path (Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts') -Message 'does not copy a bare extension'
 	Assert-True -Condition (-not (Get-Text -Path $case.Log).Contains('update')) -Message '-SkipUpdate avoids update commands'
 }
 
@@ -229,7 +235,7 @@ function Test-DryRun {
 	}
 	Pass 'dry run succeeds'
 	Assert-Equals -Actual (Get-Text -Path $case.Log) -Expected '' -Message 'dry run does not invoke pi'
-	Assert-NoFile -Path (Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts') -Message 'dry run does not copy files'
+	Assert-NoFile -Path (Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts') -Message 'dry run does not write an extension copy'
 }
 
 function Test-UpdateOrder {
@@ -251,7 +257,7 @@ function Test-UpdateOrder {
 	Assert-Contains -Path $case.Log -Needle "install $fitPiPath" -Message 'installs FIT_pi after updates'
 }
 
-function Test-IdempotentCopy {
+function Test-IdempotentRuns {
 	$case = New-Case
 	$first = Invoke-Setup -Case $case -Arguments @('-SkipUpdate')
 	$second = Invoke-Setup -Case $case -Arguments @('-SkipUpdate')
@@ -261,35 +267,12 @@ function Test-IdempotentCopy {
 	}
 	Pass 'setup can run twice'
 	$backups = Get-BackupCount -Directory (Join-Path $case.Home '.pi/agent/extensions')
-	Assert-Equals -Actual ([string]$backups) -Expected '0' -Message 'unchanged extension is not backed up'
-}
-
-function Test-BackupOnChange {
-	$case = New-Case
-	$first = Invoke-Setup -Case $case -Arguments @('-SkipUpdate')
-	$source = Join-Path $case.Home 'dev/sin/pi_questionare/questionnaire.ts'
-	Add-Content -LiteralPath $source -Value "`n// changed"
-	$second = Invoke-Setup -Case $case -Arguments @('-SkipUpdate')
-	if (-not $first.Success -or -not $second.Success) {
-		Fail-Test 'backup test runs succeed'
-		return
-	}
-	Pass 'backup test runs succeed'
-	$extension = Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts'
-	$backups = Get-BackupCount -Directory (Split-Path -Parent $extension)
-	Assert-Equals -Actual ([string]$backups) -Expected '1' -Message 'changed extension gets one timestamped backup'
-	Assert-True -Condition ((Get-Text -Path $extension).Contains('// changed')) -Message 'new extension content is installed'
+	Assert-Equals -Actual ([string]$backups) -Expected '0' -Message 'no extension backups are created when there is no old copy'
 }
 
 function Test-PackageSwitch {
 	$case = New-Case
 	$questionnaire = Join-Path $case.Home 'dev/sin/pi_questionare'
-	Set-Content -LiteralPath (Join-Path $questionnaire 'package.json') -Value @'
-{
-  "name": "pi-questionnaire",
-  "pi": { "extensions": ["./questionnaire.ts"] }
-}
-'@
 	$extensionDir = Join-Path $case.Home '.pi/agent/extensions'
 	New-Item -ItemType Directory -Path $extensionDir -Force | Out-Null
 	$extension = Join-Path $extensionDir 'questionnaire.ts'
@@ -344,6 +327,18 @@ function Test-MissingDiscovery {
 	Assert-True -Condition ($result.Error.Contains('could not find FIT_pi package')) -Message 'missing discovery explains the problem'
 }
 
+function Test-MissingPackage {
+	$case = New-Case
+	Remove-Item -LiteralPath (Join-Path $case.Home 'dev/sin/pi_questionare/package.json') -Force
+	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate')
+	if ($result.Success) {
+		Fail-Test 'questionnaire without a package manifest fails'
+	} else {
+		Pass 'questionnaire without a package manifest fails'
+	}
+	Assert-True -Condition ($result.Error.Contains('does not look valid')) -Message 'missing package manifest explains the problem'
+}
+
 function Test-EnvOverride {
 	$case = New-Case
 	$custom = Join-Path $case.Root 'custom-fit'
@@ -358,15 +353,15 @@ function Test-EnvOverride {
 }
 
 try {
-	Test-InstallAndCopy
+	Test-InstallPackages
 	Test-DryRun
 	Test-UpdateOrder
-	Test-IdempotentCopy
-	Test-BackupOnChange
+	Test-IdempotentRuns
 	Test-PackageSwitch
 	Test-FailureIsFatal
 	Test-AmbiguousDiscovery
 	Test-MissingDiscovery
+	Test-MissingPackage
 	Test-EnvOverride
 } finally {
 	Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue

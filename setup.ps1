@@ -68,9 +68,9 @@ Without overrides, the script searches $HOME, $HOME/dev, then
 $HOME/dev/sin for a directory named FIT_pi and a directory named
 pi_questionare. Missing or ambiguous matches are an error.
 
-The questionnaire is installed as a package when its repository has a
-Pi package manifest. Until then, questionnaire.ts is copied into
-$HOME/.pi/agent/extensions/.
+The questionnaire repository must be a Pi package with a manifest under
+its "pi" key. It is installed with pi install. An older bare extension copy
+in $HOME/.pi/agent/extensions/ is backed up and removed.
 '@ | Write-Host
 }
 
@@ -151,7 +151,7 @@ function Test-QuestionnairePackage {
 
 function Test-Questionnaire {
 	param([string]$Dir)
-	return ((Test-Path -LiteralPath (Join-Path $Dir 'questionnaire.ts') -PathType Leaf) -or (Test-QuestionnairePackage $Dir))
+	return Test-QuestionnairePackage -Dir $Dir
 }
 
 function Resolve-Addon {
@@ -266,49 +266,6 @@ function Backup-File {
 	Write-VerboseInfo "backed up $Target -> $backup"
 }
 
-function Test-SameFile {
-	param(
-		[string]$Source,
-		[string]$Destination
-	)
-
-	if (-not (Test-Path -LiteralPath $Destination -PathType Leaf)) {
-		return $false
-	}
-
-	$sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
-	$destinationHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
-	return ($sourceHash -eq $destinationHash)
-}
-
-function Copy-IfChanged {
-	param(
-		[string]$Source,
-		[string]$Destination
-	)
-
-	if (Test-SameFile -Source $Source -Destination $Destination) {
-		Write-VerboseInfo "unchanged: $Destination"
-		return
-	}
-
-	if (Test-Path -LiteralPath $Destination) {
-		Backup-File -Target $Destination
-	}
-
-	if ($DryRun) {
-		Write-Info "[dry-run] would copy $Source -> $Destination"
-		return
-	}
-
-	$destinationDir = Split-Path -Parent $Destination
-	if (-not (Test-Path -LiteralPath $destinationDir -PathType Container)) {
-		New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
-	}
-	Copy-Item -LiteralPath $Source -Destination $Destination -Force
-	Write-VerboseInfo "copied $Source -> $Destination"
-}
-
 if ($Help) {
 	Show-Usage
 	return
@@ -326,7 +283,7 @@ $fitPiSrc = Resolve-Addon `
 
 $questionnaireSrc = Resolve-Addon `
 	-EnvName 'QUESTIONNAIRE_SRC' `
-	-Label 'pi_questionare repository' `
+	-Label 'pi_questionare package' `
 	-DirName 'pi_questionare' `
 	-Override $questionnaireOverride `
 	-Validator ${function:Test-Questionnaire}
@@ -371,30 +328,23 @@ if ($piBinary) {
 	Write-Info "[dry-run] would run: pi install `"$fitPiSrc`""
 }
 
-if (Test-QuestionnairePackage -Dir $questionnaireSrc) {
-	Write-Info 'Installing questionnaire package...'
-	if ($piBinary) {
-		Invoke-External -FilePath $piBinary -Arguments @('install', $questionnaireSrc)
-	} else {
-		Write-Info "[dry-run] would run: pi install `"$questionnaireSrc`""
-	}
-
-	$oldExtension = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'
-	if (Test-Path -LiteralPath $oldExtension) {
-		Write-Info 'Removing old questionnaire extension copy to avoid duplicate registration...'
-		Backup-File -Target $oldExtension
-		if ($DryRun) {
-			Write-Info "[dry-run] would remove $oldExtension"
-		} else {
-			Remove-Item -LiteralPath $oldExtension -Force
-			Write-VerboseInfo "removed $oldExtension"
-		}
-	}
+Write-Info 'Installing questionnaire package...'
+if ($piBinary) {
+	Invoke-External -FilePath $piBinary -Arguments @('install', $questionnaireSrc)
 } else {
-	Write-Info 'Installing questionnaire extension (package not available yet)...'
-	$questionnaireFile = Join-Path $questionnaireSrc 'questionnaire.ts'
-	$extensionDestination = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'
-	Copy-IfChanged -Source $questionnaireFile -Destination $extensionDestination
+	Write-Info "[dry-run] would run: pi install `"$questionnaireSrc`""
+}
+
+$oldExtension = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'
+if (Test-Path -LiteralPath $oldExtension) {
+	Write-Info 'Removing old questionnaire extension copy to avoid duplicate registration...'
+	Backup-File -Target $oldExtension
+	if ($DryRun) {
+		Write-Info "[dry-run] would remove $oldExtension"
+	} else {
+		Remove-Item -LiteralPath $oldExtension -Force
+		Write-VerboseInfo "removed $oldExtension"
+	}
 }
 
 $piDisplay = $piBinary

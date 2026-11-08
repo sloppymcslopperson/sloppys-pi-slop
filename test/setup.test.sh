@@ -58,7 +58,7 @@ new_case() {
 	out="$case_dir/out"
 	err="$case_dir/err"
 
-	mkdir -p "$home/dev/FIT_pi" "$home/dev/sin/pi_questionare" "$bin"
+	mkdir -p "$home/dev/FIT_pi" "$home/dev/sin/pi_questionare/extensions" "$bin"
 
 	cat >"$home/dev/FIT_pi/package.json" <<'EOF'
 {
@@ -67,7 +67,14 @@ new_case() {
 }
 EOF
 
-	cat >"$home/dev/sin/pi_questionare/questionnaire.ts" <<'EOF'
+	cat >"$home/dev/sin/pi_questionare/package.json" <<'EOF'
+{
+  "name": "@sloppymcslopperson/pi-questions",
+  "pi": { "extensions": ["./extensions/questionnaire.ts"] }
+}
+EOF
+
+	cat >"$home/dev/sin/pi_questionare/extensions/questionnaire.ts" <<'EOF'
 export default function questionnaire() {
 	return undefined;
 }
@@ -99,7 +106,7 @@ run_setup() {
 	return "$status"
 }
 
-test_install_and_copy() {
+test_install_packages() {
 	new_case
 	if ! run_setup --skip-update --yes; then
 		fail_test "basic setup succeeds ($(cat "$err"))"
@@ -108,12 +115,8 @@ test_install_and_copy() {
 	pass "basic setup succeeds"
 
 	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi by discovered path"
-	assert_file "$home/.pi/agent/extensions/questionnaire.ts" "copies questionnaire extension"
-	if cmp -s "$home/dev/sin/pi_questionare/questionnaire.ts" "$home/.pi/agent/extensions/questionnaire.ts"; then
-		pass "questionnaire copy matches source"
-	else
-		fail_test "questionnaire copy matches source"
-	fi
+	assert_contains "$log" "install $home/dev/sin/pi_questionare" "installs questionnaire package by discovered path"
+	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "does not copy a bare extension"
 	if grep -q '^update' "$log"; then
 		fail_test "--skip-update avoids update commands"
 	else
@@ -135,7 +138,8 @@ test_dry_run() {
 	else
 		pass "dry run does not invoke pi"
 	fi
-	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "dry run does not copy files"
+	assert_contains "$out" "install $home/dev/sin/pi_questionare" "dry run prints planned questionnaire install"
+	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "dry run does not write an extension copy"
 }
 
 test_update_order() {
@@ -150,7 +154,7 @@ test_update_order() {
 	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi after updates"
 }
 
-test_idempotent_copy() {
+test_idempotent_runs() {
 	new_case
 	if ! run_setup --skip-update; then
 		fail_test "first idempotency run succeeds"
@@ -162,36 +166,15 @@ test_idempotent_copy() {
 	fi
 	pass "setup can run twice"
 
-	local backups
-	backups=$(find "$home/.pi/agent/extensions" -name '*.bak-*' -print | wc -l | tr -d ' ')
-	assert_equals "$backups" '0' "unchanged extension is not backed up"
-}
-
-test_backup_on_change() {
-	new_case
-	if ! run_setup --skip-update; then
-		fail_test "backup test first run succeeds"
-		return
+	local backups=0
+	if [ -d "$home/.pi/agent/extensions" ]; then
+		backups=$(find "$home/.pi/agent/extensions" -name '*.bak-*' -print | wc -l | tr -d ' ')
 	fi
-	printf '\n// changed\n' >>"$home/dev/sin/pi_questionare/questionnaire.ts"
-	if ! run_setup --skip-update; then
-		fail_test "backup test second run succeeds"
-		return
-	fi
-	local backups
-	backups=$(find "$home/.pi/agent/extensions" -name '*.bak-*' -print | wc -l | tr -d ' ')
-	assert_equals "$backups" '1' "changed extension gets one timestamped backup"
-	assert_contains "$home/.pi/agent/extensions/questionnaire.ts" '// changed' "new extension content is installed"
+	assert_equals "$backups" '0' "no extension backups are created when there is no old copy"
 }
 
 test_package_switch() {
 	new_case
-	cat >"$home/dev/sin/pi_questionare/package.json" <<'EOF'
-{
-  "name": "pi-questionnaire",
-  "pi": { "extensions": ["./questionnaire.ts"] }
-}
-EOF
 	mkdir -p "$home/.pi/agent/extensions"
 	printf 'old copy\n' >"$home/.pi/agent/extensions/questionnaire.ts"
 
@@ -250,15 +233,26 @@ test_env_override() {
 	assert_contains "$out" "FIT_pi: $case_dir/custom-fit" "override path is used"
 }
 
-test_install_and_copy
+test_missing_package() {
+	new_case
+	rm -f "$home/dev/sin/pi_questionare/package.json"
+	if run_setup --dry-run --skip-update; then
+		fail_test "questionnaire without a package manifest fails"
+	else
+		pass "questionnaire without a package manifest fails"
+	fi
+	assert_contains "$err" 'does not look valid' "missing package manifest explains the problem"
+}
+
+test_install_packages
 test_dry_run
 test_update_order
-test_idempotent_copy
-test_backup_on_change
+test_idempotent_runs
 test_package_switch
 test_failure_is_fatal
 test_ambiguous_discovery
 test_missing_discovery
+test_missing_package
 test_env_override
 
 if [ "$failures" -ne 0 ]; then

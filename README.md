@@ -37,14 +37,10 @@ Preview the changes first:
 2. Installs Pi from [pi.dev](https://pi.dev) when `pi` is not already present.
 3. Runs `pi update` and `pi update --extensions` (unless update is skipped).
 4. Runs `pi install <FIT_pi>`.
-5. Installs the questionnaire:
-   - as a Pi package with `pi install <pi_questionare>` when that repository
-     has a Pi package manifest (`"pi"` in `package.json`), or
-   - by copying `questionnaire.ts` into `~/.pi/agent/extensions/` until the
-     package conversion is finished.
-6. When switching to the package form, backs up and removes an older
-   `~/.pi/agent/extensions/questionnaire.ts` copy so the tool does not register
-   twice.
+5. Installs the questionnaire package with `pi install <pi_questionare>`.
+   The repository must have a Pi package manifest (`"pi"` in `package.json`).
+6. Backs up and removes an older `~/.pi/agent/extensions/questionnaire.ts`
+   copy so the tool does not register twice.
 
 Unrelated Pi settings such as provider, model, theme, and other packages are
 left alone. The scripts do not edit `settings.json` directly; `pi install` and
@@ -75,8 +71,7 @@ The scripts search these roots, in order:
 Within each root they look up to three directories deep for:
 
 - a directory named `FIT_pi` containing a Pi package manifest
-- a directory named `pi_questionare` containing `questionnaire.ts` or a Pi
-  package manifest
+- a directory named `pi_questionare` containing a Pi package manifest
 
 A missing or ambiguous match is an error, with candidate paths when there is
 more than one. Override discovery explicitly when your repositories live
@@ -102,9 +97,8 @@ The search is skipped for an addon whose environment variable is set.
   install Node when it is missing.
 - Local checkouts of `FIT_pi` and `pi_questionare`.
 
-The questionnaire currently lives in `pi_questionare`, which is not yet a Pi
-package. A separate backlog ticket tracks that conversion; once it lands, the
-setup scripts switch to `pi install` automatically.
+The questionnaire is packaged by the `pi_questionare` repository. The setup
+scripts fail clearly if that checkout does not contain a Pi package manifest.
 
 ## Tests
 
@@ -131,6 +125,5 @@ pwsh -NoProfile -File test/setup.tests.ps1
 
 - The scripts run the official Pi installer only when `pi` is missing.
 - Package installation and updates stop immediately on failure.
-- Existing extension files are backed up before replacement.
-- Re-running with no source changes does not create backups or rewrite the
-  questionnaire extension.
+- Existing extension files are backed up before removal.
+- Re-running the scripts does not create duplicate package entries.
