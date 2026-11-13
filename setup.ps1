@@ -15,6 +15,11 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$ScriptDir = $PSScriptRoot
+if (-not $ScriptDir) {
+	$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+
 $onWindows = ([Environment]::GetEnvironmentVariable('OS') -eq 'Windows_NT')
 $userProfile = [Environment]::GetEnvironmentVariable('USERPROFILE')
 $homeEnv = [Environment]::GetEnvironmentVariable('HOME')
@@ -63,14 +68,20 @@ Options:
 Environment:
   FIT_PI_SRC          Path to the FIT_pi package
   QUESTIONNAIRE_SRC   Path to the pi_questionare repository
+  GIT_COMMANDS_SRC    Path to the pi-git-commands package
 
 Without overrides, the script searches $HOME, $HOME/dev, then
-$HOME/dev/sin for a directory named FIT_pi and a directory named
-pi_questionare. Missing or ambiguous matches are an error.
+$HOME/dev/sin for directories named FIT_pi, pi_questionare, and
+pi-git-commands. Ambiguous matches are an error.
 
-The questionnaire repository must be a Pi package with a manifest under
-its "pi" key. It is installed with pi install. An older bare extension copy
-in $HOME/.pi/agent/extensions/ is backed up and removed.
+If FIT_pi or pi-git-commands is missing, it is cloned into $HOME/dev.
+If pi_questionare is missing, the vendored copy in vendor/pi_questionare
+is used. Local checkouts are reused as-is; they are not pulled.
+
+The questionnaire and pi-git-commands repositories must be Pi packages
+with manifests under their "pi" keys. They are installed with pi install.
+An older bare extension copy in $HOME/.pi/agent/extensions/ is backed up
+and removed.
 '@ | Write-Host
 }
 
@@ -115,6 +126,9 @@ function Find-NamedDirs {
 
 			$children = @(Get-ChildItem -LiteralPath $current.Path -Directory -ErrorAction SilentlyContinue)
 			foreach ($child in $children) {
+				if ($child.FullName -eq (Join-Path $ScriptDir 'vendor')) {
+					continue
+				}
 				if ($child.Name -in @('.git', 'node_modules', '.pi', '.cache', '.local')) {
 					continue
 				}
@@ -154,13 +168,53 @@ function Test-Questionnaire {
 	return Test-QuestionnairePackage -Dir $Dir
 }
 
+function Test-GitCommands {
+	param([string]$Dir)
+	$packageJson = Join-Path $Dir 'package.json'
+	if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) {
+		return $false
+	}
+	$text = Get-Content -LiteralPath $packageJson -Raw
+	return ($text -match '"name"\s*:\s*"@svyaddict/pi-git-commands"' -and $text -match '"pi"\s*:')
+}
+
+function Clone-Addon {
+	param(
+		[string]$Label,
+		[string]$DirName,
+		[string]$Url
+	)
+
+	$target = Join-Path (Join-Path $HomeDir 'dev') $DirName
+	if (Test-Path -LiteralPath $target) {
+		Fail "$Label checkout already exists but is not valid: $target"
+	}
+
+	if ($DryRun) {
+		Write-Info "[dry-run] would clone $Url -> $target"
+		return $target
+	}
+
+	$git = Get-Command git -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+	if (-not $git) {
+		Fail "need git to clone $Label from $Url"
+	}
+
+	New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
+	Write-Info "Cloning $Label from $Url..."
+	Invoke-External -FilePath $git.Path -Arguments @('clone', $Url, $target)
+	return $target
+}
+
 function Resolve-Addon {
 	param(
 		[string]$EnvName,
 		[string]$Label,
 		[string]$DirName,
 		[string]$Override,
-		[scriptblock]$Validator
+		[scriptblock]$Validator,
+		[string]$FallbackKind = '',
+		[string]$FallbackValue = ''
 	)
 
 	$candidate = $Override
@@ -181,6 +235,23 @@ function Resolve-Addon {
 
 	$found = @(Find-NamedDirs -Name $DirName)
 	if ($found.Count -eq 0) {
+		if ($FallbackKind -eq 'clone') {
+			$resolved = Clone-Addon -Label $Label -DirName $DirName -Url $FallbackValue
+			if ((Test-Path -LiteralPath $resolved) -and -not (& $Validator $resolved)) {
+				Fail "cloned $Label but it does not look valid: $resolved"
+			}
+			return $resolved
+		}
+		if ($FallbackKind -eq 'vendor') {
+			if (-not (Test-Path -LiteralPath $FallbackValue -PathType Container)) {
+				Fail "could not find $Label and the vendored copy is missing: $FallbackValue"
+			}
+			$resolved = (Resolve-Path -LiteralPath $FallbackValue).Path
+			if (-not (& $Validator $resolved)) {
+				Fail "vendored $Label does not look valid: $resolved"
+			}
+			return $resolved
+		}
 		Fail "could not find $Label. Set $EnvName to its directory."
 	}
 	if ($found.Count -gt 1) {
@@ -273,23 +344,38 @@ if ($Help) {
 
 $fitPiOverride = [Environment]::GetEnvironmentVariable('FIT_PI_SRC')
 $questionnaireOverride = [Environment]::GetEnvironmentVariable('QUESTIONNAIRE_SRC')
+$gitCommandsOverride = [Environment]::GetEnvironmentVariable('GIT_COMMANDS_SRC')
 
 $fitPiSrc = Resolve-Addon `
 	-EnvName 'FIT_PI_SRC' `
 	-Label 'FIT_pi package' `
 	-DirName 'FIT_pi' `
 	-Override $fitPiOverride `
-	-Validator ${function:Test-FitPi}
+	-Validator ${function:Test-FitPi} `
+	-FallbackKind 'clone' `
+	-FallbackValue 'git@github.com:Zaphodious/FIT_pi.git'
 
 $questionnaireSrc = Resolve-Addon `
 	-EnvName 'QUESTIONNAIRE_SRC' `
 	-Label 'pi_questionare package' `
 	-DirName 'pi_questionare' `
 	-Override $questionnaireOverride `
-	-Validator ${function:Test-Questionnaire}
+	-Validator ${function:Test-Questionnaire} `
+	-FallbackKind 'vendor' `
+	-FallbackValue (Join-Path (Join-Path $ScriptDir 'vendor') 'pi_questionare')
+
+$gitCommandsSrc = Resolve-Addon `
+	-EnvName 'GIT_COMMANDS_SRC' `
+	-Label 'pi-git-commands package' `
+	-DirName 'pi-git-commands' `
+	-Override $gitCommandsOverride `
+	-Validator ${function:Test-GitCommands} `
+	-FallbackKind 'clone' `
+	-FallbackValue 'https://github.com/svyaddict/pi-git-commands.git'
 
 Write-Info "FIT_pi: $fitPiSrc"
 Write-Info "Questionnaire: $questionnaireSrc"
+Write-Info "pi-git-commands: $gitCommandsSrc"
 
 $piBinary = Resolve-Pi
 if (-not $piBinary) {
@@ -333,6 +419,13 @@ if ($piBinary) {
 	Invoke-External -FilePath $piBinary -Arguments @('install', $questionnaireSrc)
 } else {
 	Write-Info "[dry-run] would run: pi install `"$questionnaireSrc`""
+}
+
+Write-Info 'Installing pi-git-commands package...'
+if ($piBinary) {
+	Invoke-External -FilePath $piBinary -Arguments @('install', $gitCommandsSrc)
+} else {
+	Write-Info "[dry-run] would run: pi install `"$gitCommandsSrc`""
 }
 
 $oldExtension = Join-Path $HomeDir '.pi/agent/extensions/questionnaire.ts'

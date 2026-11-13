@@ -15,6 +15,8 @@ case_dir=""
 home=""
 bin=""
 log=""
+git_log=""
+clone_fixtures=""
 out=""
 err=""
 
@@ -55,10 +57,13 @@ new_case() {
 	home="$case_dir/home"
 	bin="$case_dir/bin"
 	log="$case_dir/pi.log"
+	git_log="$case_dir/git.log"
+	clone_fixtures="$case_dir/clones"
 	out="$case_dir/out"
 	err="$case_dir/err"
 
-	mkdir -p "$home/dev/FIT_pi" "$home/dev/sin/pi_questionare/extensions" "$bin"
+	mkdir -p "$home/dev/FIT_pi" "$home/dev/sin/pi_questionare/extensions" "$home/dev/pi-git-commands" "$bin"
+	mkdir -p "$clone_fixtures/FIT_pi" "$clone_fixtures/pi-git-commands"
 
 	cat >"$home/dev/FIT_pi/package.json" <<'EOF'
 {
@@ -80,6 +85,16 @@ export default function questionnaire() {
 }
 EOF
 
+	cat >"$home/dev/pi-git-commands/package.json" <<'EOF'
+{
+  "name": "@svyaddict/pi-git-commands",
+  "pi": { "extensions": ["./extensions/index.ts"] }
+}
+EOF
+
+	cp "$home/dev/FIT_pi/package.json" "$clone_fixtures/FIT_pi/package.json"
+	cp "$home/dev/pi-git-commands/package.json" "$clone_fixtures/pi-git-commands/package.json"
+
 	cat >"$bin/pi" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$PI_LOG"
@@ -89,7 +104,23 @@ fi
 exit 0
 EOF
 	chmod +x "$bin/pi"
+
+	cat >"$bin/git" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$GIT_LOG"
+if [ "$1" = clone ]; then
+	url="$2"
+	dest="$3"
+	name=${url##*/}
+	name=${name%.git}
+	mkdir -p "$dest"
+	cp -R "$GIT_CLONE_FIXTURES/$name/." "$dest/"
+fi
+exit 0
+EOF
+	chmod +x "$bin/git"
 	: >"$log"
+	: >"$git_log"
 }
 
 run_setup() {
@@ -98,9 +129,12 @@ run_setup() {
 		export HOME="$home"
 		export PATH="$bin:$PATH"
 		export PI_LOG="$log"
+		export GIT_LOG="$git_log"
+		export GIT_CLONE_FIXTURES="$clone_fixtures"
 		if [ -n "${FAKE_PI_FAIL_ON:-}" ]; then export FAKE_PI_FAIL_ON; fi
 		if [ -n "${FIT_PI_SRC_OVERRIDE:-}" ]; then export FIT_PI_SRC="$FIT_PI_SRC_OVERRIDE"; fi
 		if [ -n "${QUESTIONNAIRE_SRC_OVERRIDE:-}" ]; then export QUESTIONNAIRE_SRC="$QUESTIONNAIRE_SRC_OVERRIDE"; fi
+		if [ -n "${GIT_COMMANDS_SRC_OVERRIDE:-}" ]; then export GIT_COMMANDS_SRC="$GIT_COMMANDS_SRC_OVERRIDE"; fi
 		"$SETUP" "$@"
 	) >"$out" 2>"$err" || status=$?
 	return "$status"
@@ -116,6 +150,7 @@ test_install_packages() {
 
 	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi by discovered path"
 	assert_contains "$log" "install $home/dev/sin/pi_questionare" "installs questionnaire package by discovered path"
+	assert_contains "$log" "install $home/dev/pi-git-commands" "installs pi-git-commands by discovered path"
 	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "does not copy a bare extension"
 	if grep -q '^update' "$log"; then
 		fail_test "--skip-update avoids update commands"
@@ -139,6 +174,7 @@ test_dry_run() {
 		pass "dry run does not invoke pi"
 	fi
 	assert_contains "$out" "install $home/dev/sin/pi_questionare" "dry run prints planned questionnaire install"
+	assert_contains "$out" "install $home/dev/pi-git-commands" "dry run prints planned pi-git-commands install"
 	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "dry run does not write an extension copy"
 }
 
@@ -152,6 +188,12 @@ test_update_order() {
 	assert_equals "$(sed -n '1p' "$log")" 'update' "updates Pi first"
 	assert_equals "$(sed -n '2p' "$log")" 'update --extensions' "updates packages second"
 	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi after updates"
+	local fit_line questionnaire_line git_line
+	fit_line=$(grep -n "install $home/dev/FIT_pi" "$log" | cut -d: -f1)
+	questionnaire_line=$(grep -n "install $home/dev/sin/pi_questionare" "$log" | cut -d: -f1)
+	git_line=$(grep -n "install $home/dev/pi-git-commands" "$log" | cut -d: -f1)
+	assert_equals "$([ "$questionnaire_line" -gt "$fit_line" ] && echo yes || echo no)" 'yes' "installs questionnaire after FIT_pi"
+	assert_equals "$([ "$git_line" -gt "$questionnaire_line" ] && echo yes || echo no)" 'yes' "installs pi-git-commands after questionnaire"
 }
 
 test_idempotent_runs() {
@@ -211,15 +253,16 @@ test_ambiguous_discovery() {
 	assert_contains "$err" 'found multiple FIT_pi package candidates' "ambiguous discovery explains the problem"
 }
 
-test_missing_discovery() {
+test_clone_missing_fit_pi() {
 	new_case
 	rm -rf "$home/dev/FIT_pi"
-	if run_setup --dry-run --skip-update; then
-		fail_test "missing discovery fails"
-	else
-		pass "missing discovery fails"
+	if ! run_setup --skip-update; then
+		fail_test "missing FIT_pi is cloned ($(cat "$err"))"
+		return
 	fi
-	assert_contains "$err" 'could not find FIT_pi package' "missing discovery explains the problem"
+	pass "missing FIT_pi is cloned"
+	assert_contains "$git_log" "clone git@github.com:Zaphodious/FIT_pi.git $home/dev/FIT_pi" "clones FIT_pi from GitHub into HOME/dev"
+	assert_contains "$log" "install $home/dev/FIT_pi" "installs the cloned FIT_pi checkout"
 }
 
 test_env_override() {
@@ -233,6 +276,17 @@ test_env_override() {
 	assert_contains "$out" "FIT_pi: $case_dir/custom-fit" "override path is used"
 }
 
+test_git_commands_env_override() {
+	new_case
+	mv "$home/dev/pi-git-commands" "$case_dir/custom-git-commands"
+	if ! GIT_COMMANDS_SRC_OVERRIDE="$case_dir/custom-git-commands" run_setup --dry-run --skip-update; then
+		fail_test "GIT_COMMANDS_SRC override succeeds ($(cat "$err"))"
+		return
+	fi
+	pass "GIT_COMMANDS_SRC override succeeds"
+	assert_contains "$out" "pi-git-commands: $case_dir/custom-git-commands" "git commands override path is used"
+}
+
 test_missing_package() {
 	new_case
 	rm -f "$home/dev/sin/pi_questionare/package.json"
@@ -244,6 +298,46 @@ test_missing_package() {
 	assert_contains "$err" 'does not look valid' "missing package manifest explains the problem"
 }
 
+test_vendored_questionnaire_fallback() {
+	new_case
+	rm -rf "$home/dev/sin/pi_questionare"
+	if ! run_setup --dry-run --skip-update; then
+		fail_test "missing questionnaire falls back to the vendored copy ($(cat "$err"))"
+		return
+	fi
+	pass "missing questionnaire falls back to the vendored copy"
+	assert_contains "$out" "Questionnaire: $ROOT/vendor/pi_questionare" "uses the vendored questionnaire path"
+	assert_contains "$out" "install $ROOT/vendor/pi_questionare" "prints the vendored questionnaire install"
+}
+
+test_invalid_git_commands_package() {
+	new_case
+	cat >"$home/dev/pi-git-commands/package.json" <<'EOF'
+{
+  "name": "some-other-package",
+  "pi": { "extensions": ["./extensions/index.ts"] }
+}
+EOF
+	if run_setup --dry-run --skip-update; then
+		fail_test "pi-git-commands with the wrong package name fails"
+	else
+		pass "pi-git-commands with the wrong package name fails"
+	fi
+	assert_contains "$err" 'does not look valid' "wrong pi-git-commands package name explains the problem"
+}
+
+test_clone_missing_git_commands() {
+	new_case
+	rm -rf "$home/dev/pi-git-commands"
+	if ! run_setup --skip-update; then
+		fail_test "missing pi-git-commands is cloned ($(cat "$err"))"
+		return
+	fi
+	pass "missing pi-git-commands is cloned"
+	assert_contains "$git_log" "clone https://github.com/svyaddict/pi-git-commands.git $home/dev/pi-git-commands" "clones pi-git-commands from GitHub into HOME/dev"
+	assert_contains "$log" "install $home/dev/pi-git-commands" "installs the cloned pi-git-commands checkout"
+}
+
 test_install_packages
 test_dry_run
 test_update_order
@@ -251,9 +345,13 @@ test_idempotent_runs
 test_package_switch
 test_failure_is_fatal
 test_ambiguous_discovery
-test_missing_discovery
+test_clone_missing_fit_pi
 test_missing_package
+test_vendored_questionnaire_fallback
+test_invalid_git_commands_package
+test_clone_missing_git_commands
 test_env_override
+test_git_commands_env_override
 
 if [ "$failures" -ne 0 ]; then
 	printf '\n%s test(s) failed\n' "$failures" >&2

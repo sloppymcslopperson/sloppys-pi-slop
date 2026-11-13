@@ -7,6 +7,7 @@
 set -euo pipefail
 
 SCRIPT_NAME=$(basename "$0")
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 DRY_RUN=0
 SKIP_UPDATE=0
 VERBOSE=0
@@ -14,6 +15,7 @@ ASSUME_YES=0
 PI_BIN=""
 FIT_PI_SRC=${FIT_PI_SRC:-}
 QUESTIONNAIRE_SRC=${QUESTIONNAIRE_SRC:-}
+GIT_COMMANDS_SRC=${GIT_COMMANDS_SRC:-}
 
 usage() {
 	cat <<EOF
@@ -32,14 +34,20 @@ Options:
 Environment:
   FIT_PI_SRC          Path to the FIT_pi package
   QUESTIONNAIRE_SRC   Path to the pi_questionare repository
+  GIT_COMMANDS_SRC    Path to the pi-git-commands package
 
 Without overrides, the script searches \$HOME, \$HOME/dev, then
-\$HOME/dev/sin for a directory named FIT_pi and a directory named
-pi_questionare. Missing or ambiguous matches are an error.
+\$HOME/dev/sin for directories named FIT_pi, pi_questionare, and
+pi-git-commands. Ambiguous matches are an error.
 
-The questionnaire repository must be a Pi package with a manifest under
-its "pi" key. It is installed with pi install. An older bare extension copy
-in \$HOME/.pi/agent/extensions/ is backed up and removed.
+If FIT_pi or pi-git-commands is missing, it is cloned into \$HOME/dev.
+If pi_questionare is missing, the vendored copy in vendor/pi_questionare
+is used. Local checkouts are reused as-is; they are not pulled.
+
+The questionnaire and pi-git-commands repositories must be Pi packages
+with manifests under their "pi" keys. They are installed with pi install.
+An older bare extension copy in \$HOME/.pi/agent/extensions/ is backed up
+and removed.
 EOF
 }
 
@@ -104,7 +112,7 @@ find_named_dirs() {
 	for root in "$HOME" "$HOME/dev" "$HOME/dev/sin"; do
 		[ -d "$root" ] || continue
 		find "$root" -maxdepth 3 \
-			\( -name .git -o -name node_modules -o -name .pi -o -name .cache -o -name .local \) -prune -o \
+			\( -path "$SCRIPT_DIR/vendor" -o -name .git -o -name node_modules -o -name .pi -o -name .cache -o -name .local \) -prune -o \
 			-type d -name "$name" -print 2>/dev/null || true
 	done | while IFS= read -r candidate; do
 		canonical_dir "$candidate"
@@ -129,12 +137,49 @@ validate_questionnaire() {
 	is_questionnaire_package "$dir"
 }
 
+is_git_commands_package() {
+	local dir="$1"
+	[ -f "$dir/package.json" ] || return 1
+	grep -Eq '"name"[[:space:]]*:[[:space:]]*"@svyaddict/pi-git-commands"' "$dir/package.json" &&
+		grep -Eq '"pi"[[:space:]]*:' "$dir/package.json"
+}
+
+validate_git_commands() {
+	local dir="$1"
+	is_git_commands_package "$dir"
+}
+
+clone_missing_addon() {
+	local label="$1"
+	local dir_name="$2"
+	local url="$3"
+	local target="$HOME/dev/$dir_name"
+
+	ADDON_FALLBACK_PATH="$target"
+
+	if [ -d "$target" ]; then
+		die "$label checkout already exists but is not valid: $target"
+	fi
+
+	if [ "$DRY_RUN" -eq 1 ]; then
+		log "[dry-run] would clone $url -> $target"
+		return 0
+	fi
+
+	command -v git >/dev/null 2>&1 || die "need git to clone $label from $url"
+	log "Cloning $label from $url..."
+	mkdir -p "$(dirname "$target")"
+	git clone "$url" "$target" || die "failed to clone $label from $url"
+}
+
 discover_addon() {
 	local label="$1"
 	local env_name="$2"
 	local dir_name="$3"
 	local override="$4"
 	local validator="$5"
+	local fallback_kind="${6:-}"
+	local fallback_value="${7:-}"
 	local candidates
 	local count
 	local chosen
@@ -143,7 +188,7 @@ discover_addon() {
 		[ -d "$override" ] || die "$env_name is not a directory: $override"
 		chosen=$(canonical_dir "$override") || die "cannot resolve $env_name: $override"
 		"$validator" "$chosen" || die "$env_name does not look like $label: $override"
-		printf '%s\n' "$chosen"
+		ADDON_PATH="$chosen"
 		return 0
 	fi
 
@@ -154,7 +199,26 @@ discover_addon() {
 	fi
 
 	if [ "$count" -eq 0 ]; then
-		die "could not find $label. Set $env_name to its directory."
+		case "$fallback_kind" in
+		clone)
+			clone_missing_addon "$label" "$dir_name" "$fallback_value"
+			chosen="$ADDON_FALLBACK_PATH"
+			if [ -d "$chosen" ]; then
+				"$validator" "$chosen" || die "cloned $label but it does not look valid: $chosen"
+			fi
+			ADDON_PATH="$chosen"
+			return 0
+			;;
+		vendor)
+			chosen=$(canonical_dir "$fallback_value") || die "could not find $label and the vendored copy is missing: $fallback_value"
+			"$validator" "$chosen" || die "vendored $label does not look valid: $chosen"
+			ADDON_PATH="$chosen"
+			return 0
+			;;
+		*)
+			die "could not find $label. Set $env_name to its directory."
+			;;
+		esac
 	fi
 
 	if [ "$count" -gt 1 ]; then
@@ -167,7 +231,7 @@ discover_addon() {
 
 	chosen=$(printf '%s\n' "$candidates" | sed -n '1p')
 	"$validator" "$chosen" || die "found $label but it does not look valid: $chosen"
-	printf '%s\n' "$chosen"
+	ADDON_PATH="$chosen"
 }
 
 resolve_pi() {
@@ -237,11 +301,16 @@ main() {
 
 	parse_args "$@"
 
-	FIT_PI_SRC=$(discover_addon "FIT_pi package" "FIT_PI_SRC" "FIT_pi" "$FIT_PI_SRC" validate_fit_pi)
-	QUESTIONNAIRE_SRC=$(discover_addon "pi_questionare package" "QUESTIONNAIRE_SRC" "pi_questionare" "$QUESTIONNAIRE_SRC" validate_questionnaire)
+	discover_addon "FIT_pi package" "FIT_PI_SRC" "FIT_pi" "$FIT_PI_SRC" validate_fit_pi clone "git@github.com:Zaphodious/FIT_pi.git"
+	FIT_PI_SRC="$ADDON_PATH"
+	discover_addon "pi_questionare package" "QUESTIONNAIRE_SRC" "pi_questionare" "$QUESTIONNAIRE_SRC" validate_questionnaire vendor "$SCRIPT_DIR/vendor/pi_questionare"
+	QUESTIONNAIRE_SRC="$ADDON_PATH"
+	discover_addon "pi-git-commands package" "GIT_COMMANDS_SRC" "pi-git-commands" "$GIT_COMMANDS_SRC" validate_git_commands clone "https://github.com/svyaddict/pi-git-commands.git"
+	GIT_COMMANDS_SRC="$ADDON_PATH"
 
 	log "FIT_pi: $FIT_PI_SRC"
 	log "Questionnaire: $QUESTIONNAIRE_SRC"
+	log "pi-git-commands: $GIT_COMMANDS_SRC"
 
 	PI_BIN=$(resolve_pi || true)
 	if [ -z "$PI_BIN" ]; then
@@ -283,6 +352,13 @@ main() {
 		run "$PI_BIN" install "$QUESTIONNAIRE_SRC"
 	else
 		log "[dry-run] would run: pi install \"$QUESTIONNAIRE_SRC\""
+	fi
+
+	log "Installing pi-git-commands package..."
+	if [ -n "$PI_BIN" ]; then
+		run "$PI_BIN" install "$GIT_COMMANDS_SRC"
+	else
+		log "[dry-run] would run: pi install \"$GIT_COMMANDS_SRC\""
 	fi
 
 	old_extension="$HOME/.pi/agent/extensions/questionnaire.ts"
