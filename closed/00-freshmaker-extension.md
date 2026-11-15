@@ -47,3 +47,12 @@ Freshmaker is a Pi extension at ./freshmaker that tracks files loaded into conte
 ### Verification
 - `node --test test/*.test.ts` from `freshmaker/`: 9 tests pass.
 - TypeScript check with strict NodeNext settings against the installed Pi types: pass.
+
+### Follow-up correction: checkpoint timing
+This supersedes the earlier "every agent run" checkpoint trigger.
+- `before_agent_start` still stats tracked files, compares them with the last settled checkpoint, and injects the hidden change notice.
+- The checkpoint snapshot is now written at `agent_settled`, when the run has finished and the agent is waiting for user input.
+- A file the agent read and then wrote during the same run is baselined as the agent left it, so it is not falsely reported on the next prompt.
+- Changes made outside the agent run are still detected on the next prompt.
+- README and the extension integration test were updated to cover the deferral and the read-then-write case.
+- Verification: 9 tests pass; strict TypeScript check passes.
