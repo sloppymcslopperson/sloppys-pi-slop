@@ -35,3 +35,48 @@ Guardrails:
 - If a ticket changed since you read it, re-read it instead of forcing a
   write.
 <!-- fit:end -->
+
+## Committing
+
+Always commit with `./commit.sh` (passing normal `git commit` arguments, e.g.
+`./commit.sh -a -m "message"`) instead of running `git commit` directly. The
+script temporarily sets the commit identity to
+`Sloppy McSlopperson <thesloppyslopperson@gmail.com>` and restores the repo's
+configured `user.name`/`user.email` afterwards, even if the commit fails.
+
+## Plugin monorepo
+
+This repository is the canonical home for the Pi plugins made here. Bundled
+plugins live under `plugins/<name>` and are independent Pi packages with their
+own `package.json`, lockfile, tests, and README. Do not convert them to npm
+workspaces or add a plugin to the setup scripts from an external checkout.
+
+Current bundled plugins:
+
+- `plugins/FIT_pi` (`pi-fit`)
+- `plugins/pi_questionare` (`@sloppymcslopperson/pi-questions`)
+- `plugins/freshmaker` (`@sloppymcslopperson/pi-freshmaker`)
+
+The external `@svyaddict/pi-git-commands` package is installed by the setup
+scripts but is not vendored here.
+
+### Making a plugin
+
+When asked to "make a plugin that...", create a complete plugin package under
+`plugins/<kebab-case-name>`:
+
+1. Copy `templates/pi-plugin` to the new plugin directory.
+2. Replace `__PACKAGE_NAME__`, `__PLUGIN_NAME__`, and `__DESCRIPTION__`.
+3. Implement the extension under `extensions/` and add focused tests under
+   `test/`.
+4. Add the plugin to `setup.sh`, `setup.ps1`, and the plugin table in
+   `README.md`.
+5. Run the plugin's typecheck and tests.
+
+Plugin rules:
+
+- Keep each plugin independently installable with `pi install <path>`.
+- Use a `"pi"` manifest in `package.json` and include the extension entrypoint.
+- Keep runtime code in the plugin directory; do not rely on files outside it.
+- Do not copy `.git`, `node_modules`, or old `fit/` boards into a plugin.
+- Keep setup tests network-free by using fake `pi` and `git` executables.
