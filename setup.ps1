@@ -52,7 +52,7 @@ function Fail {
 
 function Show-Usage {
 	@'
-setup.ps1 - set up Pi with the local addons
+setup.ps1 - set up Pi with the bundled and external addons
 
 Usage:
   ./setup.ps1 [-DryRun] [-SkipUpdate] [-Verbose] [-Yes]
@@ -66,22 +66,22 @@ Options:
   -Help         Show this help
 
 Environment:
-  FIT_PI_SRC          Path to the FIT_pi package
-  QUESTIONNAIRE_SRC   Path to the pi_questionare repository
+  FIT_PI_SRC          Path to a FIT_pi development checkout
+  QUESTIONNAIRE_SRC   Path to a pi_questionare development checkout
+  FRESHMAKER_SRC      Path to a pi-freshmaker development checkout
   GIT_COMMANDS_SRC    Path to the pi-git-commands package
 
-Without overrides, the script searches $HOME, $HOME/dev, then
-$HOME/dev/sin for directories named FIT_pi, pi_questionare, and
-pi-git-commands. Ambiguous matches are an error.
+The bundled FIT_pi, pi_questionare, and pi-freshmaker plugins are installed
+from plugins/ in this repository. Set an override to use a development
+checkout instead.
 
-If FIT_pi or pi-git-commands is missing, it is cloned into $HOME/dev.
-If pi_questionare is missing, the vendored copy in vendor/pi_questionare
-is used. Local checkouts are reused as-is; they are not pulled.
+pi-git-commands remains external. Without an override, the script searches
+$HOME, $HOME/dev, then $HOME/dev/sin for pi-git-commands and clones it
+from GitHub into $HOME/dev when missing. Ambiguous matches are an error.
 
-The questionnaire and pi-git-commands repositories must be Pi packages
-with manifests under their "pi" keys. They are installed with pi install.
-An older bare extension copy in $HOME/.pi/agent/extensions/ is backed up
-and removed.
+All installed plugins must be Pi packages with manifests under their "pi"
+keys. They are installed with pi install. An older bare extension copy in
+$HOME/.pi/agent/extensions/ is backed up and removed.
 '@ | Write-Host
 }
 
@@ -126,9 +126,6 @@ function Find-NamedDirs {
 
 			$children = @(Get-ChildItem -LiteralPath $current.Path -Directory -ErrorAction SilentlyContinue)
 			foreach ($child in $children) {
-				if ($child.FullName -eq (Join-Path $ScriptDir 'vendor')) {
-					continue
-				}
 				if ($child.Name -in @('.git', 'node_modules', '.pi', '.cache', '.local')) {
 					continue
 				}
@@ -166,6 +163,16 @@ function Test-QuestionnairePackage {
 function Test-Questionnaire {
 	param([string]$Dir)
 	return Test-QuestionnairePackage -Dir $Dir
+}
+
+function Test-Freshmaker {
+	param([string]$Dir)
+	$packageJson = Join-Path $Dir 'package.json'
+	if (-not (Test-Path -LiteralPath $packageJson -PathType Leaf)) {
+		return $false
+	}
+	$text = Get-Content -LiteralPath $packageJson -Raw
+	return ($text -match '"name"\s*:\s*"@sloppymcslopperson/pi-freshmaker"' -and $text -match '"pi"\s*:')
 }
 
 function Test-GitCommands {
@@ -206,6 +213,30 @@ function Clone-Addon {
 	return $target
 }
 
+function Resolve-BundledAddon {
+	param(
+		[string]$EnvName,
+		[string]$Label,
+		[string]$DefaultPath,
+		[string]$Override,
+		[scriptblock]$Validator
+	)
+
+	$candidate = $Override
+	if (-not $candidate) {
+		$candidate = $DefaultPath
+	}
+	if (-not (Test-Path -LiteralPath $candidate -PathType Container)) {
+		Fail "bundled $Label is missing: $candidate"
+	}
+
+	$resolved = (Resolve-Path -LiteralPath $candidate).Path
+	if (-not (& $Validator $resolved)) {
+		Fail "$EnvName does not look like $Label`: $resolved"
+	}
+	return $resolved
+}
+
 function Resolve-Addon {
 	param(
 		[string]$EnvName,
@@ -239,16 +270,6 @@ function Resolve-Addon {
 			$resolved = Clone-Addon -Label $Label -DirName $DirName -Url $FallbackValue
 			if ((Test-Path -LiteralPath $resolved) -and -not (& $Validator $resolved)) {
 				Fail "cloned $Label but it does not look valid: $resolved"
-			}
-			return $resolved
-		}
-		if ($FallbackKind -eq 'vendor') {
-			if (-not (Test-Path -LiteralPath $FallbackValue -PathType Container)) {
-				Fail "could not find $Label and the vendored copy is missing: $FallbackValue"
-			}
-			$resolved = (Resolve-Path -LiteralPath $FallbackValue).Path
-			if (-not (& $Validator $resolved)) {
-				Fail "vendored $Label does not look valid: $resolved"
 			}
 			return $resolved
 		}
@@ -344,25 +365,29 @@ if ($Help) {
 
 $fitPiOverride = [Environment]::GetEnvironmentVariable('FIT_PI_SRC')
 $questionnaireOverride = [Environment]::GetEnvironmentVariable('QUESTIONNAIRE_SRC')
+$freshmakerOverride = [Environment]::GetEnvironmentVariable('FRESHMAKER_SRC')
 $gitCommandsOverride = [Environment]::GetEnvironmentVariable('GIT_COMMANDS_SRC')
 
-$fitPiSrc = Resolve-Addon `
+$fitPiSrc = Resolve-BundledAddon `
 	-EnvName 'FIT_PI_SRC' `
 	-Label 'FIT_pi package' `
-	-DirName 'FIT_pi' `
+	-DefaultPath (Join-Path (Join-Path $ScriptDir 'plugins') 'FIT_pi') `
 	-Override $fitPiOverride `
-	-Validator ${function:Test-FitPi} `
-	-FallbackKind 'clone' `
-	-FallbackValue 'git@github.com:Zaphodious/FIT_pi.git'
+	-Validator ${function:Test-FitPi}
 
-$questionnaireSrc = Resolve-Addon `
+$questionnaireSrc = Resolve-BundledAddon `
 	-EnvName 'QUESTIONNAIRE_SRC' `
 	-Label 'pi_questionare package' `
-	-DirName 'pi_questionare' `
+	-DefaultPath (Join-Path (Join-Path $ScriptDir 'plugins') 'pi_questionare') `
 	-Override $questionnaireOverride `
-	-Validator ${function:Test-Questionnaire} `
-	-FallbackKind 'vendor' `
-	-FallbackValue (Join-Path (Join-Path $ScriptDir 'vendor') 'pi_questionare')
+	-Validator ${function:Test-Questionnaire}
+
+$freshmakerSrc = Resolve-BundledAddon `
+	-EnvName 'FRESHMAKER_SRC' `
+	-Label 'pi-freshmaker package' `
+	-DefaultPath (Join-Path (Join-Path $ScriptDir 'plugins') 'freshmaker') `
+	-Override $freshmakerOverride `
+	-Validator ${function:Test-Freshmaker}
 
 $gitCommandsSrc = Resolve-Addon `
 	-EnvName 'GIT_COMMANDS_SRC' `
@@ -375,6 +400,7 @@ $gitCommandsSrc = Resolve-Addon `
 
 Write-Info "FIT_pi: $fitPiSrc"
 Write-Info "Questionnaire: $questionnaireSrc"
+Write-Info "pi-freshmaker: $freshmakerSrc"
 Write-Info "pi-git-commands: $gitCommandsSrc"
 
 $piBinary = Resolve-Pi
@@ -419,6 +445,13 @@ if ($piBinary) {
 	Invoke-External -FilePath $piBinary -Arguments @('install', $questionnaireSrc)
 } else {
 	Write-Info "[dry-run] would run: pi install `"$questionnaireSrc`""
+}
+
+Write-Info 'Installing pi-freshmaker package...'
+if ($piBinary) {
+	Invoke-External -FilePath $piBinary -Arguments @('install', $freshmakerSrc)
+} else {
+	Write-Info "[dry-run] would run: pi install `"$freshmakerSrc`""
 }
 
 Write-Info 'Installing pi-git-commands package...'

@@ -15,11 +15,12 @@ ASSUME_YES=0
 PI_BIN=""
 FIT_PI_SRC=${FIT_PI_SRC:-}
 QUESTIONNAIRE_SRC=${QUESTIONNAIRE_SRC:-}
+FRESHMAKER_SRC=${FRESHMAKER_SRC:-}
 GIT_COMMANDS_SRC=${GIT_COMMANDS_SRC:-}
 
 usage() {
 	cat <<EOF
-$SCRIPT_NAME - set up Pi with the local addons
+$SCRIPT_NAME - set up Pi with the bundled and external addons
 
 Usage:
   ./$SCRIPT_NAME [options]
@@ -32,22 +33,22 @@ Options:
   --help, -h      Show this help
 
 Environment:
-  FIT_PI_SRC          Path to the FIT_pi package
-  QUESTIONNAIRE_SRC   Path to the pi_questionare repository
+  FIT_PI_SRC          Path to a FIT_pi development checkout
+  QUESTIONNAIRE_SRC   Path to a pi_questionare development checkout
+  FRESHMAKER_SRC      Path to a pi-freshmaker development checkout
   GIT_COMMANDS_SRC    Path to the pi-git-commands package
 
-Without overrides, the script searches \$HOME, \$HOME/dev, then
-\$HOME/dev/sin for directories named FIT_pi, pi_questionare, and
-pi-git-commands. Ambiguous matches are an error.
+The bundled FIT_pi, pi_questionare, and pi-freshmaker plugins are installed
+from plugins/ in this repository. Set an override to use a development
+checkout instead.
 
-If FIT_pi or pi-git-commands is missing, it is cloned into \$HOME/dev.
-If pi_questionare is missing, the vendored copy in vendor/pi_questionare
-is used. Local checkouts are reused as-is; they are not pulled.
+pi-git-commands remains external. Without an override, the script searches
+\$HOME, \$HOME/dev, then \$HOME/dev/sin for pi-git-commands and clones it
+from GitHub into \$HOME/dev when missing. Ambiguous matches are an error.
 
-The questionnaire and pi-git-commands repositories must be Pi packages
-with manifests under their "pi" keys. They are installed with pi install.
-An older bare extension copy in \$HOME/.pi/agent/extensions/ is backed up
-and removed.
+All installed plugins must be Pi packages with manifests under their "pi"
+keys. They are installed with pi install. An older bare extension copy in
+\$HOME/.pi/agent/extensions/ is backed up and removed.
 EOF
 }
 
@@ -106,13 +107,31 @@ canonical_dir() {
 	(cd "$1" 2>/dev/null && pwd -P)
 }
 
+resolve_bundled_addon() {
+	local label="$1"
+	local env_name="$2"
+	local default_path="$3"
+	local validator="$4"
+	local override="$5"
+	local chosen
+
+	if [ -n "$override" ]; then
+		chosen=$(canonical_dir "$override") || die "$env_name is not a directory: $override"
+	else
+		chosen=$(canonical_dir "$default_path") || die "bundled $label is missing: $default_path"
+	fi
+
+	"$validator" "$chosen" || die "$env_name does not look like $label: $chosen"
+	printf '%s\n' "$chosen"
+}
+
 find_named_dirs() {
 	local name="$1"
 	local root
 	for root in "$HOME" "$HOME/dev" "$HOME/dev/sin"; do
 		[ -d "$root" ] || continue
 		find "$root" -maxdepth 3 \
-			\( -path "$SCRIPT_DIR/vendor" -o -name .git -o -name node_modules -o -name .pi -o -name .cache -o -name .local \) -prune -o \
+			\( -name .git -o -name node_modules -o -name .pi -o -name .cache -o -name .local \) -prune -o \
 			-type d -name "$name" -print 2>/dev/null || true
 	done | while IFS= read -r candidate; do
 		canonical_dir "$candidate"
@@ -135,6 +154,18 @@ validate_fit_pi() {
 validate_questionnaire() {
 	local dir="$1"
 	is_questionnaire_package "$dir"
+}
+
+is_freshmaker_package() {
+	local dir="$1"
+	[ -f "$dir/package.json" ] || return 1
+	grep -Eq '"name"[[:space:]]*:[[:space:]]*"@sloppymcslopperson/pi-freshmaker"' "$dir/package.json" &&
+		grep -Eq '"pi"[[:space:]]*:' "$dir/package.json"
+}
+
+validate_freshmaker() {
+	local dir="$1"
+	is_freshmaker_package "$dir"
 }
 
 is_git_commands_package() {
@@ -206,12 +237,6 @@ discover_addon() {
 			if [ -d "$chosen" ]; then
 				"$validator" "$chosen" || die "cloned $label but it does not look valid: $chosen"
 			fi
-			ADDON_PATH="$chosen"
-			return 0
-			;;
-		vendor)
-			chosen=$(canonical_dir "$fallback_value") || die "could not find $label and the vendored copy is missing: $fallback_value"
-			"$validator" "$chosen" || die "vendored $label does not look valid: $chosen"
 			ADDON_PATH="$chosen"
 			return 0
 			;;
@@ -301,15 +326,15 @@ main() {
 
 	parse_args "$@"
 
-	discover_addon "FIT_pi package" "FIT_PI_SRC" "FIT_pi" "$FIT_PI_SRC" validate_fit_pi clone "git@github.com:Zaphodious/FIT_pi.git"
-	FIT_PI_SRC="$ADDON_PATH"
-	discover_addon "pi_questionare package" "QUESTIONNAIRE_SRC" "pi_questionare" "$QUESTIONNAIRE_SRC" validate_questionnaire vendor "$SCRIPT_DIR/vendor/pi_questionare"
-	QUESTIONNAIRE_SRC="$ADDON_PATH"
+	FIT_PI_SRC=$(resolve_bundled_addon "FIT_pi package" "FIT_PI_SRC" "$SCRIPT_DIR/plugins/FIT_pi" validate_fit_pi "$FIT_PI_SRC")
+	QUESTIONNAIRE_SRC=$(resolve_bundled_addon "pi_questionare package" "QUESTIONNAIRE_SRC" "$SCRIPT_DIR/plugins/pi_questionare" validate_questionnaire "$QUESTIONNAIRE_SRC")
+	FRESHMAKER_SRC=$(resolve_bundled_addon "pi-freshmaker package" "FRESHMAKER_SRC" "$SCRIPT_DIR/plugins/freshmaker" validate_freshmaker "$FRESHMAKER_SRC")
 	discover_addon "pi-git-commands package" "GIT_COMMANDS_SRC" "pi-git-commands" "$GIT_COMMANDS_SRC" validate_git_commands clone "https://github.com/svyaddict/pi-git-commands.git"
 	GIT_COMMANDS_SRC="$ADDON_PATH"
 
 	log "FIT_pi: $FIT_PI_SRC"
 	log "Questionnaire: $QUESTIONNAIRE_SRC"
+	log "pi-freshmaker: $FRESHMAKER_SRC"
 	log "pi-git-commands: $GIT_COMMANDS_SRC"
 
 	PI_BIN=$(resolve_pi || true)
@@ -352,6 +377,13 @@ main() {
 		run "$PI_BIN" install "$QUESTIONNAIRE_SRC"
 	else
 		log "[dry-run] would run: pi install \"$QUESTIONNAIRE_SRC\""
+	fi
+
+	log "Installing pi-freshmaker package..."
+	if [ -n "$PI_BIN" ]; then
+		run "$PI_BIN" install "$FRESHMAKER_SRC"
+	else
+		log "[dry-run] would run: pi install \"$FRESHMAKER_SRC\""
 	fi
 
 	log "Installing pi-git-commands package..."

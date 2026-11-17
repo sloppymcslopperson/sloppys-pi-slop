@@ -7,6 +7,9 @@ set -euo pipefail
 
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 SETUP="$ROOT/setup.sh"
+BUNDLED_FIT="$ROOT/plugins/FIT_pi"
+BUNDLED_QUESTIONNAIRE="$ROOT/plugins/pi_questionare"
+BUNDLED_FRESHMAKER="$ROOT/plugins/freshmaker"
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
@@ -63,7 +66,7 @@ new_case() {
 	err="$case_dir/err"
 
 	mkdir -p "$home/dev/FIT_pi" "$home/dev/sin/pi_questionare/extensions" "$home/dev/pi-git-commands" "$bin"
-	mkdir -p "$clone_fixtures/FIT_pi" "$clone_fixtures/pi-git-commands"
+	mkdir -p "$clone_fixtures/pi-git-commands"
 
 	cat >"$home/dev/FIT_pi/package.json" <<'EOF'
 {
@@ -92,7 +95,6 @@ EOF
 }
 EOF
 
-	cp "$home/dev/FIT_pi/package.json" "$clone_fixtures/FIT_pi/package.json"
 	cp "$home/dev/pi-git-commands/package.json" "$clone_fixtures/pi-git-commands/package.json"
 
 	cat >"$bin/pi" <<'EOF'
@@ -135,6 +137,7 @@ run_setup() {
 		if [ -n "${FIT_PI_SRC_OVERRIDE:-}" ]; then export FIT_PI_SRC="$FIT_PI_SRC_OVERRIDE"; fi
 		if [ -n "${QUESTIONNAIRE_SRC_OVERRIDE:-}" ]; then export QUESTIONNAIRE_SRC="$QUESTIONNAIRE_SRC_OVERRIDE"; fi
 		if [ -n "${GIT_COMMANDS_SRC_OVERRIDE:-}" ]; then export GIT_COMMANDS_SRC="$GIT_COMMANDS_SRC_OVERRIDE"; fi
+		if [ -n "${FRESHMAKER_SRC_OVERRIDE:-}" ]; then export FRESHMAKER_SRC="$FRESHMAKER_SRC_OVERRIDE"; fi
 		"$SETUP" "$@"
 	) >"$out" 2>"$err" || status=$?
 	return "$status"
@@ -148,9 +151,10 @@ test_install_packages() {
 	fi
 	pass "basic setup succeeds"
 
-	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi by discovered path"
-	assert_contains "$log" "install $home/dev/sin/pi_questionare" "installs questionnaire package by discovered path"
-	assert_contains "$log" "install $home/dev/pi-git-commands" "installs pi-git-commands by discovered path"
+	assert_contains "$log" "install $BUNDLED_FIT" "installs bundled FIT_pi"
+	assert_contains "$log" "install $BUNDLED_QUESTIONNAIRE" "installs bundled questionnaire package"
+	assert_contains "$log" "install $BUNDLED_FRESHMAKER" "installs bundled pi-freshmaker package"
+	assert_contains "$log" "install $home/dev/pi-git-commands" "installs external pi-git-commands by discovered path"
 	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "does not copy a bare extension"
 	if grep -q '^update' "$log"; then
 		fail_test "--skip-update avoids update commands"
@@ -167,13 +171,14 @@ test_dry_run() {
 	fi
 	pass "dry run succeeds"
 	assert_contains "$out" '[dry-run] would run:' "dry run prints planned commands"
-	assert_contains "$out" "install $home/dev/FIT_pi" "dry run prints planned FIT_pi install"
+	assert_contains "$out" "install $BUNDLED_FIT" "dry run prints planned FIT_pi install"
 	if [ -s "$log" ]; then
 		fail_test "dry run does not invoke pi"
 	else
 		pass "dry run does not invoke pi"
 	fi
-	assert_contains "$out" "install $home/dev/sin/pi_questionare" "dry run prints planned questionnaire install"
+	assert_contains "$out" "install $BUNDLED_QUESTIONNAIRE" "dry run prints planned questionnaire install"
+	assert_contains "$out" "install $BUNDLED_FRESHMAKER" "dry run prints planned pi-freshmaker install"
 	assert_contains "$out" "install $home/dev/pi-git-commands" "dry run prints planned pi-git-commands install"
 	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "dry run does not write an extension copy"
 }
@@ -187,13 +192,15 @@ test_update_order() {
 	pass "setup with updates succeeds"
 	assert_equals "$(sed -n '1p' "$log")" 'update' "updates Pi first"
 	assert_equals "$(sed -n '2p' "$log")" 'update --extensions' "updates packages second"
-	assert_contains "$log" "install $home/dev/FIT_pi" "installs FIT_pi after updates"
-	local fit_line questionnaire_line git_line
-	fit_line=$(grep -n "install $home/dev/FIT_pi" "$log" | cut -d: -f1)
-	questionnaire_line=$(grep -n "install $home/dev/sin/pi_questionare" "$log" | cut -d: -f1)
+	assert_contains "$log" "install $BUNDLED_FIT" "installs FIT_pi after updates"
+	local fit_line questionnaire_line freshmaker_line git_line
+	fit_line=$(grep -n "install $BUNDLED_FIT" "$log" | cut -d: -f1)
+	questionnaire_line=$(grep -n "install $BUNDLED_QUESTIONNAIRE" "$log" | cut -d: -f1)
+	freshmaker_line=$(grep -n "install $BUNDLED_FRESHMAKER" "$log" | cut -d: -f1)
 	git_line=$(grep -n "install $home/dev/pi-git-commands" "$log" | cut -d: -f1)
 	assert_equals "$([ "$questionnaire_line" -gt "$fit_line" ] && echo yes || echo no)" 'yes' "installs questionnaire after FIT_pi"
-	assert_equals "$([ "$git_line" -gt "$questionnaire_line" ] && echo yes || echo no)" 'yes' "installs pi-git-commands after questionnaire"
+	assert_equals "$([ "$freshmaker_line" -gt "$questionnaire_line" ] && echo yes || echo no)" 'yes' "installs pi-freshmaker after questionnaire"
+	assert_equals "$([ "$git_line" -gt "$freshmaker_line" ] && echo yes || echo no)" 'yes' "installs pi-git-commands after pi-freshmaker"
 }
 
 test_idempotent_runs() {
@@ -225,7 +232,7 @@ test_package_switch() {
 		return
 	fi
 	pass "package switch succeeds"
-	assert_contains "$log" "install $home/dev/sin/pi_questionare" "installs questionnaire package"
+	assert_contains "$log" "install $BUNDLED_QUESTIONNAIRE" "installs questionnaire package"
 	assert_no_file "$home/.pi/agent/extensions/questionnaire.ts" "removes old extension copy"
 	local backups
 	backups=$(find "$home/.pi/agent/extensions" -name '*.bak-*' -print | wc -l | tr -d ' ')
@@ -243,26 +250,24 @@ test_failure_is_fatal() {
 
 test_ambiguous_discovery() {
 	new_case
-	mkdir -p "$home/dev/other/FIT_pi"
-	cp "$home/dev/FIT_pi/package.json" "$home/dev/other/FIT_pi/package.json"
+	mkdir -p "$home/dev/other/pi-git-commands"
+	cp "$home/dev/pi-git-commands/package.json" "$home/dev/other/pi-git-commands/package.json"
 	if run_setup --dry-run --skip-update; then
-		fail_test "ambiguous discovery fails"
+		fail_test "ambiguous pi-git-commands discovery fails"
 	else
-		pass "ambiguous discovery fails"
+		pass "ambiguous pi-git-commands discovery fails"
 	fi
-	assert_contains "$err" 'found multiple FIT_pi package candidates' "ambiguous discovery explains the problem"
+	assert_contains "$err" 'found multiple pi-git-commands package candidates' "ambiguous discovery explains the problem"
 }
 
-test_clone_missing_fit_pi() {
+test_bundled_fit_default() {
 	new_case
-	rm -rf "$home/dev/FIT_pi"
-	if ! run_setup --skip-update; then
-		fail_test "missing FIT_pi is cloned ($(cat "$err"))"
+	if ! run_setup --dry-run --skip-update; then
+		fail_test "bundled FIT_pi is used by default ($(cat "$err"))"
 		return
 	fi
-	pass "missing FIT_pi is cloned"
-	assert_contains "$git_log" "clone git@github.com:Zaphodious/FIT_pi.git $home/dev/FIT_pi" "clones FIT_pi from GitHub into HOME/dev"
-	assert_contains "$log" "install $home/dev/FIT_pi" "installs the cloned FIT_pi checkout"
+	pass "bundled FIT_pi is used by default"
+	assert_contains "$out" "FIT_pi: $BUNDLED_FIT" "does not use the temporary local FIT_pi checkout"
 }
 
 test_env_override() {
@@ -289,25 +294,34 @@ test_git_commands_env_override() {
 
 test_missing_package() {
 	new_case
-	rm -f "$home/dev/sin/pi_questionare/package.json"
-	if run_setup --dry-run --skip-update; then
-		fail_test "questionnaire without a package manifest fails"
+	if QUESTIONNAIRE_SRC_OVERRIDE="$home/missing-questionnaire" run_setup --dry-run --skip-update; then
+		fail_test "missing questionnaire override fails"
 	else
-		pass "questionnaire without a package manifest fails"
+		pass "missing questionnaire override fails"
 	fi
-	assert_contains "$err" 'does not look valid' "missing package manifest explains the problem"
+	assert_contains "$err" 'QUESTIONNAIRE_SRC is not a directory' "missing questionnaire override explains the problem"
 }
 
-test_vendored_questionnaire_fallback() {
+test_bundled_questionnaire_default() {
 	new_case
-	rm -rf "$home/dev/sin/pi_questionare"
 	if ! run_setup --dry-run --skip-update; then
-		fail_test "missing questionnaire falls back to the vendored copy ($(cat "$err"))"
+		fail_test "bundled questionnaire is used by default ($(cat "$err"))"
 		return
 	fi
-	pass "missing questionnaire falls back to the vendored copy"
-	assert_contains "$out" "Questionnaire: $ROOT/vendor/pi_questionare" "uses the vendored questionnaire path"
-	assert_contains "$out" "install $ROOT/vendor/pi_questionare" "prints the vendored questionnaire install"
+	pass "bundled questionnaire is used by default"
+	assert_contains "$out" "Questionnaire: $BUNDLED_QUESTIONNAIRE" "uses the bundled questionnaire path"
+}
+
+test_freshmaker_env_override() {
+	new_case
+	mkdir -p "$case_dir/custom-freshmaker"
+	cp "$BUNDLED_FRESHMAKER/package.json" "$case_dir/custom-freshmaker/package.json"
+	if ! FRESHMAKER_SRC_OVERRIDE="$case_dir/custom-freshmaker" run_setup --dry-run --skip-update; then
+		fail_test "FRESHMAKER_SRC override succeeds ($(cat "$err"))"
+		return
+	fi
+	pass "FRESHMAKER_SRC override succeeds"
+	assert_contains "$out" "pi-freshmaker: $case_dir/custom-freshmaker" "freshmaker override path is used"
 }
 
 test_invalid_git_commands_package() {
@@ -345,9 +359,10 @@ test_idempotent_runs
 test_package_switch
 test_failure_is_fatal
 test_ambiguous_discovery
-test_clone_missing_fit_pi
+test_bundled_fit_default
 test_missing_package
-test_vendored_questionnaire_fallback
+test_bundled_questionnaire_default
+test_freshmaker_env_override
 test_invalid_git_commands_package
 test_clone_missing_git_commands
 test_env_override

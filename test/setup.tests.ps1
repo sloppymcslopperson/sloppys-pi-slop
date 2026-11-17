@@ -103,7 +103,6 @@ function New-Case {
 	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/FIT_pi') -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/sin/pi_questionare/extensions') -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $homeDir 'dev/pi-git-commands') -Force | Out-Null
-	New-Item -ItemType Directory -Path (Join-Path $cloneFixtures 'FIT_pi') -Force | Out-Null
 	New-Item -ItemType Directory -Path (Join-Path $cloneFixtures 'pi-git-commands') -Force | Out-Null
 	New-Item -ItemType Directory -Path $bin -Force | Out-Null
 
@@ -134,7 +133,6 @@ export default function questionnaire() {
 }
 '@
 
-	Copy-Item -LiteralPath (Join-Path $homeDir 'dev/FIT_pi/package.json') -Destination (Join-Path $cloneFixtures 'FIT_pi/package.json')
 	Copy-Item -LiteralPath (Join-Path $homeDir 'dev/pi-git-commands/package.json') -Destination (Join-Path $cloneFixtures 'pi-git-commands/package.json')
 
 	if ($onWindows) {
@@ -154,7 +152,6 @@ echo %*>>"%GIT_LOG%"
 set "URL=%~2"
 set "DEST=%~3"
 if not "%1"=="clone" exit /b 0
-if "%URL%"=="git@github.com:Zaphodious/FIT_pi.git" set "NAME=FIT_pi"
 if "%URL%"=="https://github.com/svyaddict/pi-git-commands.git" set "NAME=pi-git-commands"
 xcopy /E /I /Y "%GIT_CLONE_FIXTURES%\%NAME%" "%DEST%" >nul
 exit /b 0
@@ -210,7 +207,7 @@ function Invoke-Setup {
 		[hashtable]$Environment = @{}
 	)
 
-	$managed = @('HOME', 'USERPROFILE', 'PATH', 'PI_LOG', 'GIT_LOG', 'GIT_CLONE_FIXTURES', 'FAKE_PI_FAIL_ON', 'FIT_PI_SRC', 'QUESTIONNAIRE_SRC', 'GIT_COMMANDS_SRC')
+	$managed = @('HOME', 'USERPROFILE', 'PATH', 'PI_LOG', 'GIT_LOG', 'GIT_CLONE_FIXTURES', 'FAKE_PI_FAIL_ON', 'FIT_PI_SRC', 'QUESTIONNAIRE_SRC', 'FRESHMAKER_SRC', 'GIT_COMMANDS_SRC')
 	$saved = @{}
 	foreach ($key in $managed) {
 		$saved[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
@@ -227,7 +224,7 @@ function Invoke-Setup {
 		$env:GIT_LOG = $Case.GitLog
 		$env:GIT_CLONE_FIXTURES = $Case.CloneFixtures
 
-		foreach ($key in @('FAKE_PI_FAIL_ON', 'FIT_PI_SRC', 'QUESTIONNAIRE_SRC', 'GIT_COMMANDS_SRC')) {
+		foreach ($key in @('FAKE_PI_FAIL_ON', 'FIT_PI_SRC', 'QUESTIONNAIRE_SRC', 'FRESHMAKER_SRC', 'GIT_COMMANDS_SRC')) {
 			[Environment]::SetEnvironmentVariable($key, $null, 'Process')
 		}
 		foreach ($key in $Environment.Keys) {
@@ -268,12 +265,14 @@ function Test-InstallPackages {
 	}
 	Pass 'basic setup succeeds'
 
-	$fitPiPath = "$($case.Home)/dev/FIT_pi".Replace('/', [IO.Path]::DirectorySeparatorChar)
-	$questionnairePath = "$($case.Home)/dev/sin/pi_questionare".Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$fitPiPath = (Join-Path (Join-Path $Root 'plugins') 'FIT_pi').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$questionnairePath = (Join-Path (Join-Path $Root 'plugins') 'pi_questionare').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$freshmakerPath = (Join-Path (Join-Path $Root 'plugins') 'freshmaker').Replace('/', [IO.Path]::DirectorySeparatorChar)
 	$gitCommandsPath = "$($case.Home)/dev/pi-git-commands".Replace('/', [IO.Path]::DirectorySeparatorChar)
-	Assert-Contains -Path $case.Log -Needle "install $fitPiPath" -Message 'installs FIT_pi by discovered path'
-	Assert-Contains -Path $case.Log -Needle "install $questionnairePath" -Message 'installs questionnaire package by discovered path'
-	Assert-Contains -Path $case.Log -Needle "install $gitCommandsPath" -Message 'installs pi-git-commands by discovered path'
+	Assert-Contains -Path $case.Log -Needle "install $fitPiPath" -Message 'installs bundled FIT_pi'
+	Assert-Contains -Path $case.Log -Needle "install $questionnairePath" -Message 'installs bundled questionnaire package'
+	Assert-Contains -Path $case.Log -Needle "install $freshmakerPath" -Message 'installs bundled pi-freshmaker package'
+	Assert-Contains -Path $case.Log -Needle "install $gitCommandsPath" -Message 'installs external pi-git-commands by discovered path'
 	Assert-NoFile -Path (Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts') -Message 'does not copy a bare extension'
 	Assert-True -Condition (-not (Get-Text -Path $case.Log).Contains('update')) -Message '-SkipUpdate avoids update commands'
 }
@@ -286,9 +285,11 @@ function Test-DryRun {
 		return
 	}
 	Pass 'dry run succeeds'
-	$fitPiPath = "$($case.Home)/dev/FIT_pi".Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$fitPiPath = (Join-Path (Join-Path $Root 'plugins') 'FIT_pi').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$freshmakerPath = (Join-Path (Join-Path $Root 'plugins') 'freshmaker').Replace('/', [IO.Path]::DirectorySeparatorChar)
 	$gitCommandsPath = "$($case.Home)/dev/pi-git-commands".Replace('/', [IO.Path]::DirectorySeparatorChar)
 	Assert-True -Condition ($result.Output.Contains("install $fitPiPath")) -Message 'dry run prints planned FIT_pi install'
+	Assert-True -Condition ($result.Output.Contains("install $freshmakerPath")) -Message 'dry run prints planned pi-freshmaker install'
 	Assert-True -Condition ($result.Output.Contains("install $gitCommandsPath")) -Message 'dry run prints planned pi-git-commands install'
 	Assert-Equals -Actual (Get-Text -Path $case.Log) -Expected '' -Message 'dry run does not invoke pi'
 	Assert-NoFile -Path (Join-Path $case.Home '.pi/agent/extensions/questionnaire.ts') -Message 'dry run does not write an extension copy'
@@ -309,12 +310,14 @@ function Test-UpdateOrder {
 	} else {
 		Fail-Test 'update commands were logged'
 	}
-	$fitPiPath = "$($case.Home)/dev/FIT_pi".Replace('/', [IO.Path]::DirectorySeparatorChar)
-	$questionnairePath = "$($case.Home)/dev/sin/pi_questionare".Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$fitPiPath = (Join-Path (Join-Path $Root 'plugins') 'FIT_pi').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$questionnairePath = (Join-Path (Join-Path $Root 'plugins') 'pi_questionare').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	$freshmakerPath = (Join-Path (Join-Path $Root 'plugins') 'freshmaker').Replace('/', [IO.Path]::DirectorySeparatorChar)
 	$gitCommandsPath = "$($case.Home)/dev/pi-git-commands".Replace('/', [IO.Path]::DirectorySeparatorChar)
 	Assert-Contains -Path $case.Log -Needle "install $fitPiPath" -Message 'installs FIT_pi after updates'
 	Assert-Contains -Path $case.Log -Needle "install $questionnairePath" -Message 'installs questionnaire after FIT_pi'
-	Assert-Contains -Path $case.Log -Needle "install $gitCommandsPath" -Message 'installs pi-git-commands after questionnaire'
+	Assert-Contains -Path $case.Log -Needle "install $freshmakerPath" -Message 'installs pi-freshmaker after questionnaire'
+	Assert-Contains -Path $case.Log -Needle "install $gitCommandsPath" -Message 'installs pi-git-commands after pi-freshmaker'
 }
 
 function Test-IdempotentRuns {
@@ -332,7 +335,7 @@ function Test-IdempotentRuns {
 
 function Test-PackageSwitch {
 	$case = New-Case
-	$questionnaire = Join-Path $case.Home 'dev/sin/pi_questionare'
+	$questionnaire = Join-Path (Join-Path $Root 'plugins') 'pi_questionare'
 	$extensionDir = Join-Path $case.Home '.pi/agent/extensions'
 	New-Item -ItemType Directory -Path $extensionDir -Force | Out-Null
 	$extension = Join-Path $extensionDir 'questionnaire.ts'
@@ -363,56 +366,52 @@ function Test-FailureIsFatal {
 
 function Test-AmbiguousDiscovery {
 	$case = New-Case
-	$other = Join-Path $case.Home 'dev/other/FIT_pi'
+	$other = Join-Path $case.Home 'dev/other/pi-git-commands'
 	New-Item -ItemType Directory -Path $other -Force | Out-Null
-	Copy-Item -LiteralPath (Join-Path $case.Home 'dev/FIT_pi/package.json') -Destination (Join-Path $other 'package.json')
+	Copy-Item -LiteralPath (Join-Path $case.Home 'dev/pi-git-commands/package.json') -Destination (Join-Path $other 'package.json')
 	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate')
 	if ($result.Success) {
-		Fail-Test 'ambiguous discovery fails'
+		Fail-Test 'ambiguous pi-git-commands discovery fails'
 	} else {
-		Pass 'ambiguous discovery fails'
+		Pass 'ambiguous pi-git-commands discovery fails'
 	}
-	Assert-True -Condition ($result.Error.Contains('found multiple FIT_pi package candidates')) -Message 'ambiguous discovery explains the problem'
+	Assert-True -Condition ($result.Error.Contains('found multiple pi-git-commands package candidates')) -Message 'ambiguous discovery explains the problem'
 }
 
-function Test-CloneMissingFitPi {
+function Test-BundledFitDefault {
 	$case = New-Case
-	Remove-Item -LiteralPath (Join-Path $case.Home 'dev/FIT_pi') -Recurse -Force
-	$result = Invoke-Setup -Case $case -Arguments @('-SkipUpdate')
+	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate')
 	if (-not $result.Success) {
-		Fail-Test "missing FIT_pi is cloned ($($result.Error))"
+		Fail-Test "bundled FIT_pi is used by default ($($result.Error))"
 		return
 	}
-	Pass 'missing FIT_pi is cloned'
-	$target = "$($case.Home)/dev/FIT_pi".Replace('/', [IO.Path]::DirectorySeparatorChar)
-	Assert-Contains -Path $case.GitLog -Needle "clone git@github.com:Zaphodious/FIT_pi.git $target" -Message 'clones FIT_pi from GitHub into HOME/dev'
-	Assert-Contains -Path $case.Log -Needle "install $target" -Message 'installs the cloned FIT_pi checkout'
+	Pass 'bundled FIT_pi is used by default'
+	$fitPiPath = (Join-Path (Join-Path $Root 'plugins') 'FIT_pi').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	Assert-True -Condition ($result.Output.Contains("FIT_pi: $fitPiPath")) -Message 'does not use the temporary local FIT_pi checkout'
 }
 
 function Test-MissingPackage {
 	$case = New-Case
-	Remove-Item -LiteralPath (Join-Path $case.Home 'dev/sin/pi_questionare/package.json') -Force
-	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate')
+	$missing = Join-Path $case.Home 'missing-questionnaire'
+	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate') -Environment @{ QUESTIONNAIRE_SRC = $missing }
 	if ($result.Success) {
-		Fail-Test 'questionnaire without a package manifest fails'
+		Fail-Test 'missing questionnaire override fails'
 	} else {
-		Pass 'questionnaire without a package manifest fails'
+		Pass 'missing questionnaire override fails'
 	}
-	Assert-True -Condition ($result.Error.Contains('does not look valid')) -Message 'missing package manifest explains the problem'
+	Assert-True -Condition ($result.Error.Contains('QUESTIONNAIRE_SRC is not a directory')) -Message 'missing questionnaire override explains the problem'
 }
 
-function Test-VendoredQuestionnaireFallback {
+function Test-BundledQuestionnaireDefault {
 	$case = New-Case
-	Remove-Item -LiteralPath (Join-Path $case.Home 'dev/sin/pi_questionare') -Recurse -Force
 	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate')
 	if (-not $result.Success) {
-		Fail-Test "missing questionnaire falls back to the vendored copy ($($result.Error))"
+		Fail-Test "bundled questionnaire is used by default ($($result.Error))"
 		return
 	}
-	Pass 'missing questionnaire falls back to the vendored copy'
-	$vendorPath = (Join-Path (Join-Path $Root 'vendor') 'pi_questionare').Replace('/', [IO.Path]::DirectorySeparatorChar)
-	Assert-True -Condition ($result.Output.Contains("Questionnaire: $vendorPath")) -Message 'uses the vendored questionnaire path'
-	Assert-True -Condition ($result.Output.Contains("install $vendorPath")) -Message 'prints the vendored questionnaire install'
+	Pass 'bundled questionnaire is used by default'
+	$bundledPath = (Join-Path (Join-Path $Root 'plugins') 'pi_questionare').Replace('/', [IO.Path]::DirectorySeparatorChar)
+	Assert-True -Condition ($result.Output.Contains("Questionnaire: $bundledPath")) -Message 'uses the bundled questionnaire path'
 }
 
 function Test-InvalidGitCommandsPackage {
@@ -459,6 +458,21 @@ function Test-EnvOverride {
 	Assert-Contains -Path $case.Log -Needle "install $custom" -Message 'override path is used'
 }
 
+function Test-FreshmakerEnvOverride {
+	$case = New-Case
+	$custom = Join-Path $case.Root 'custom-freshmaker'
+	New-Item -ItemType Directory -Path $custom -Force | Out-Null
+	$freshmakerSource = Join-Path (Join-Path (Join-Path $Root 'plugins') 'freshmaker') 'package.json'
+	Copy-Item -LiteralPath $freshmakerSource -Destination (Join-Path $custom 'package.json')
+	$result = Invoke-Setup -Case $case -Arguments @('-DryRun', '-SkipUpdate') -Environment @{ FRESHMAKER_SRC = $custom }
+	if (-not $result.Success) {
+		Fail-Test "FRESHMAKER_SRC override succeeds ($($result.Error))"
+		return
+	}
+	Pass 'FRESHMAKER_SRC override succeeds'
+	Assert-True -Condition ($result.Output.Contains("pi-freshmaker: $custom")) -Message 'freshmaker override path is used'
+}
+
 function Test-GitCommandsEnvOverride {
 	$case = New-Case
 	$custom = Join-Path $case.Root 'custom-git-commands'
@@ -480,9 +494,10 @@ try {
 	Test-PackageSwitch
 	Test-FailureIsFatal
 	Test-AmbiguousDiscovery
-	Test-CloneMissingFitPi
+	Test-BundledFitDefault
 	Test-MissingPackage
-	Test-VendoredQuestionnaireFallback
+	Test-BundledQuestionnaireDefault
+	Test-FreshmakerEnvOverride
 	Test-InvalidGitCommandsPackage
 	Test-CloneMissingGitCommands
 	Test-EnvOverride
