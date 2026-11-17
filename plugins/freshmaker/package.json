@@ -1,0 +1,36 @@
+{
+	"name": "@sloppymcslopperson/pi-freshmaker",
+	"version": "0.1.0",
+	"description": "Track changes to files loaded into Pi context and checkpoint them per session",
+	"type": "module",
+	"license": "Unlicense",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"freshmaker",
+		"checkpoint",
+		"context"
+	],
+	"pi": {
+		"extensions": [
+			"./extensions/freshmaker.ts"
+		]
+	},
+	"files": [
+		"extensions",
+		"README.md"
+	],
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"test": "node --test test/*.test.ts",
+		"check": "npm test"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@types/node": "^22.19.0"
+	}
+}

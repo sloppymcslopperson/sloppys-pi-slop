@@ -1,0 +1,40 @@
+{
+	"name": "@sloppymcslopperson/pi-questions",
+	"version": "0.1.0",
+	"description": "Tabbed multiple-choice questionnaire tool for Pi",
+	"type": "module",
+	"license": "Unlicense",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"questionnaire",
+		"tui"
+	],
+	"pi": {
+		"extensions": [
+			"./extensions/questionnaire.ts"
+		]
+	},
+	"files": [
+		"extensions",
+		"README.md",
+		"UNLICENSE"
+	],
+	"engines": {
+		"node": ">=22.19.0"
+	},
+	"scripts": {
+		"test": "node --test test/*.test.ts",
+		"typecheck": "tsc --noEmit",
+		"check": "npm run typecheck && npm test"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@types/node": "^22.19.0",
+		"typescript": "^5.9.0"
+	}
+}

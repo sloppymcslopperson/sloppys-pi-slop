@@ -1,0 +1,738 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIT Spec v0.5: Ten Remaining Defects</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --paper: #161b22;
+    --ink: #e6edf5;
+    --muted: #9aa8ba;
+    --line: #2b3440;
+    --accent: #63b3ff;
+    --accent-soft: #122a44;
+    --warn-soft: #2b2214;
+    --warn-line: #9b7430;
+    --good-soft: #14261b;
+    --good-line: #3f7f57;
+    --code-bg: #232c38;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header.hero {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 30px 32px;
+    margin-bottom: 26px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  .meta {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.76rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .pill.warn { background: var(--warn-soft); color: #e7d3a2; }
+  .pill.good { background: var(--good-soft); color: #9ad1b0; }
+  .note {
+    background: var(--good-soft);
+    border: 1px solid var(--good-line);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note strong { display: block; margin-bottom: 4px; }
+  .note p { margin: 0 0 8px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn {
+    background: var(--warn-soft);
+    border-color: var(--warn-line);
+  }
+  .note ul { margin: 6px 0 8px; padding-left: 1.25rem; }
+  .note li { margin: 3px 0; }
+  nav.toc {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 26px;
+  }
+  nav.toc h2 {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.3rem;
+  }
+  nav.toc li { margin: 7px 0; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+  nav.toc a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+  nav.toc .ref {
+    display: inline-block;
+    min-width: 2.7rem;
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  nav.toc .kind {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  article.suggestion, article.appendix {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 30px 28px;
+    margin: 22px 0;
+    scroll-margin-top: 20px;
+  }
+  article.suggestion:target {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .suggestion-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .id-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #06111f;
+    border-radius: 7px;
+    padding: 3px 9px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  article.suggestion h2, article.appendix h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .where {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 0 0 18px;
+  }
+  h3 {
+    margin: 22px 0 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  blockquote.current {
+    margin: 0;
+    padding: 12px 16px;
+    background: var(--warn-soft);
+    border-left: 3px solid var(--warn-line);
+    border-radius: 0 8px 8px 0;
+    color: #e7d3a2;
+    font-size: 0.94rem;
+  }
+  blockquote.current p { margin: 0 0 8px; }
+  blockquote.current p:last-child { margin-bottom: 0; }
+  blockquote.current pre { background: rgba(0,0,0,0.28); }
+  .proposal {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--good-soft);
+    border-left: 3px solid var(--good-line);
+    border-radius: 0 8px 8px 0;
+    font-size: 0.95rem;
+  }
+  .proposal p { margin: 0 0 10px; }
+  .proposal p:last-child { margin-bottom: 0; }
+  .proposal ul { margin: 6px 0 10px; padding-left: 1.25rem; }
+  .proposal li { margin: 4px 0; }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.32em;
+    font: 0.88em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  pre {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    background: var(--code-bg);
+    border-radius: 6px;
+    overflow-x: auto;
+    font: 0.84rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  pre code { background: none; padding: 0; font-size: 1em; }
+  ul.why { margin: 0; padding-left: 1.25rem; font-size: 0.95rem; }
+  ul.why li { margin: 6px 0; }
+  .effect {
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .effect strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 0; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  td code { white-space: nowrap; }
+  .state { font-weight: 700; }
+  .state.fixed { color: #9ad1b0; }
+  .state.partly { color: #e7d3a2; }
+  .state.open { color: #ff9b9b; }
+  footer {
+    margin-top: 34px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    text-align: center;
+  }
+  a { color: var(--accent); }
+  @media (max-width: 640px) {
+    main { padding: 20px 14px 60px; }
+    article.suggestion, article.appendix { padding: 20px 18px 22px; }
+    header.hero { padding: 22px 18px; }
+  }
+  @media print {
+    :root {
+      color-scheme: light;
+      --bg: #fff;
+      --paper: #fff;
+      --ink: #1d2430;
+      --muted: #5d6978;
+      --line: #bbb;
+      --accent: #0b5cad;
+      --accent-soft: #e8f1fb;
+      --warn-soft: #fff6e5;
+      --warn-line: #c79a3f;
+      --good-soft: #eaf7ef;
+      --good-line: #6aa784;
+      --code-bg: #eef1f5;
+    }
+    body { background: #fff; }
+    main { max-width: none; padding: 0; }
+    article.suggestion, article.appendix, header.hero, nav.toc { break-inside: avoid; }
+    nav.toc { break-after: page; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <h1>FIT Spec v0.5: Ten Remaining Defects</h1>
+    <p class="subtitle">Version 0.5 adopted most of the previous review and then introduced a few contradictions of its own. These are the ten that still cost a reader or a tool the most.</p>
+    <div class="meta">
+      <span class="pill">10 suggestions</span>
+      <span class="pill">Reference IDs S21–S30</span>
+      <span class="pill">Spec text only</span>
+      <span class="pill good">Version 0.5</span>
+      <span class="pill warn">Spec commit 22982bf</span>
+    </div>
+  </header>
+
+  <div class="note warn">
+    <strong>What this reviews</strong>
+    <p>Upstream <code>FIT_SPEC.md</code> at <code>HeadEmptyNoNotes/FIT</code>,
+    commit <code>22982bf</code> (“Refine and clarify FIT_SPEC.md”), which declares
+    <code>Version 0.5</code> (SHA-256 <code>c2cc1a26…</code>). This supersedes the
+    <em>Basic/Strict</em> draft reviewed in <code>fit-spec-suggestions-v2.html</code>
+    (IDs <code>S11–S20</code>). “Current text” is quoted verbatim; “Suggested
+    wording” is proposal text, not an applied patch.</p>
+  </div>
+
+  <div class="note">
+    <strong>What v0.5 fixed from the last review</strong>
+    <ul>
+      <li><strong>S11 conformance</strong> — now has required vs optional rules, explicit strict-implies-basic, and versioning. <em>Fixed.</em></li>
+      <li><strong>S12 Basic/Strict subset</strong> — now explicit, with “strict wins”. <em>Fixed.</em></li>
+      <li><strong>S13 single <code>in_progress</code></strong> — now scoped to subdirectories and branch checkouts. <em>Fixed.</em></li>
+      <li><strong>S14 ticket definition</strong> — now <code>.md</code>-only, path-derived status, frontmatter non-authoritative. <em>Mostly fixed; new archive hole.</em></li>
+      <li><strong>S15 naming</strong> — now <code>00</code> high, two digits, lowercase, nonconforming-vs-valid. <em>Mostly fixed; 30-char rule is broken.</em></li>
+      <li><strong>S16 ordering</strong> — now gives status order, sub-status order, and a collation example. <em>Partly fixed; multi-level shapes still undefined.</em></li>
+      <li><strong>S17 archiving</strong> — now has a concrete <code>archive.md</code> format. <em>Partly fixed; archive files become tickets.</em></li>
+      <li><strong>S18 Git</strong> — now enumerates modes and fixes the dangling heading. <em>Mostly fixed; sequencing still missing.</em></li>
+      <li><strong>S19 frontmatter</strong> — now delimited, non-authoritative, with reserved keys. <em>Mostly fixed.</em></li>
+      <li><strong>S20 body shape</strong> — now has a summary paragraph and heading rule. <em>Partly fixed; boundary and length guidance still absent.</em></li>
+    </ul>
+    <p>Nine of the ten topics were acted on. The items below are the remaining gaps plus two defects the rewrite introduced: <code>archive.md</code> being a ticket (S21), and “required” rules coexisting with “valid tickets” that violate them (S22).</p>
+  </div>
+
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Suggestions, most consequential first</h2>
+    <ol>
+      <li><a href="#S21"><span class="ref">S21</span> Exclude <code>archive.md</code> and board files from the ticket definition</a> <span class="kind">— definition</span></li>
+      <li><a href="#S22"><span class="ref">S22</span> Separate “valid ticket” from “compliant ticket”</a> <span class="kind">— conformance</span></li>
+      <li><a href="#S23"><span class="ref">S23</span> The 30-character filename limit cannot work as written</a> <span class="kind">— naming</span></li>
+      <li><a href="#S24"><span class="ref">S24</span> Pin down identity, uniqueness, projects, and display names</a> <span class="kind">— identity</span></li>
+      <li><a href="#S25"><span class="ref">S25</span> Specify the <code>STRICT</code> marker and version rules</a> <span class="kind">— versioning</span></li>
+      <li><a href="#S26"><span class="ref">S26</span> Ordering still misses several board shapes</a> <span class="kind">— ordering</span></li>
+      <li><a href="#S27"><span class="ref">S27</span> Finish the archive mechanics and archived-ticket status</a> <span class="kind">— archival</span></li>
+      <li><a href="#S28"><span class="ref">S28</span> Close the frontmatter gaps</a> <span class="kind">— frontmatter</span></li>
+      <li><a href="#S29"><span class="ref">S29</span> Define where the summary ends, and restore body guidance</a> <span class="kind">— content</span></li>
+      <li><a href="#S30"><span class="ref">S30</span> Fix the Git prose and close sequencing</a> <span class="kind">— Git</span></li>
+    </ol>
+  </nav>
+
+  <article class="suggestion" id="S21" data-suggestion-id="S21">
+    <div class="suggestion-head">
+      <span class="id-badge">S21</span>
+      <h2>Exclude <code>archive.md</code> and board files from the ticket definition</h2>
+    </div>
+    <p class="where">Basic → ticket definition ↔ Lifecycle → archiving · follows up v2 <a href="fit-spec-suggestions-v2.html#S14">S14</a>, <a href="fit-spec-suggestions-v2.html#S17">S17</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket is a markdown file (with the ".md" file extention), optionally containing frontmatter yaml, inside a status folder.”</p>
+      <p>“A closed ticket may be archived by appending its contents to an archive.md file within the 'closed' directory.”</p>
+      <p>“Status directories may contain .gitkeep files.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong><code>archive.md</code> is a ticket under the definition.</strong> It is a Markdown file ending in <code>.md</code>, inside <code>closed/</code>, a status folder. So the archive container becomes a ticket: it appears in listings, participates in ordering, and competes for a unique name.</li>
+      <li><strong>Every archived entry is also “inside” a ticket-shaped file but has no ticket file.</strong> Tools that enumerate tickets from the filesystem will see one file containing N tickets; the spec never says to parse it, or to hide it.</li>
+      <li><strong>The ticket rules contradict the archive format.</strong> Strict tickets must have an <code>NN-</code> prefix and a lowercase name of 30 characters or fewer; <code>archive.md</code> satisfies none of that. Strict also says anything beyond a summary needs a heading, while <code>archive.md</code> has no summary and uses headings as record separators.</li>
+      <li><strong><code>.gitkeep</code> got an explicit exception, nothing else did.</strong> The same hole exists for a stray <code>FIT_SPEC.md</code> or <code>STRICT</code> placed in a status folder, editor swap files, and attachments (screenshots, fixtures) stored next to tickets.</li>
+      <li><strong>Archived tickets removed from the board are called “valid tickets with a status of closed”</strong>, even though the definition requires a ticket to be inside a status folder. After removal, no such folder contains them.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Replace the one-sentence definition with an explicit inclusion and exclusion list:</p>
+      <p>“A <strong>ticket</strong> is a regular file whose name ends in <code>.md</code>, located at any depth beneath one of the board's status directories, that is not one of the board's reserved files. Reserved files are: <code>archive.md</code> in a status directory, <code>STRICT</code> and <code>FIT_SPEC.md</code> at the board root, any file whose name begins with a dot (including <code>.gitkeep</code>), and any file with another extension. Reserved files are not tickets and are ignored by ticket listings, ordering, name uniqueness, and validation.”</p>
+      <p>Then say how archives relate to discovery: “An <code>archive.md</code> file is a container, not a ticket. Tools may list its entries as archived tickets, but entry headers are not filenames and do not participate in the board's naming rules. Archived tickets that have been moved out of the board are not discoverable by scanning the board; they are historical records.”</p>
+      <p>Keep the status-folder requirement for live tickets only, and drop the claim that removed tickets are “valid tickets” — call them archived records.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> restores one discovery rule, stops the archive container from being treated as a malformed <code>00-</code> ticket, and makes “removed from board” consistent.</p>
+  </article>
+
+  <article class="suggestion" id="S22" data-suggestion-id="S22">
+    <div class="suggestion-head">
+      <span class="id-badge">S22</span>
+      <h2>Separate “valid ticket” from “compliant ticket”</h2>
+    </div>
+    <p class="where">Strict → opening ↔ Tickets → priority, naming · follows up v2 <a href="fit-spec-suggestions-v2.html#S11">S11</a>, <a href="fit-spec-suggestions-v2.html#S15">S15</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Rules are either required (violations make the board non-compliant) or optional (violations are reported as warnings). If something is not restricted here, then it is allowed.”</p>
+      <p>“A ticket's priority must be present, and must be two digits. … (”fix-bug.md“ is nonconforming and may cause issues, while ”00-fix-bug.md“ is conforming. Both are valid tickets.)”</p>
+      <p>“A ticket's filename must be lowercase.”</p>
+      <p>“Ticket names must not be duplicated within the FIT board”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“Must” and “valid” are used for different subjects.</strong> The conformance model says violations make the <em>board</em> non-compliant, but the ticket rules say a file violating “must” is still a “valid ticket”. A reader cannot tell whether <code>fix-bug.md</code> is a valid nonconforming ticket, or evidence that the board is non-compliant, or both.</li>
+      <li><strong>The terms are never defined.</strong> “Valid”, “conforming”, “compliant”, “nonconforming”, and “non-compliant” all appear; none is defined, and “conforming” vs “compliant” looks accidental. This matters because Strict says every required rule is binding.</li>
+      <li><strong>“Required” and “optional” rules are not labelled.</strong> The framework classifies rules but the rules themselves never say which class they are in. Is lowercase required or optional? Is the 30-character limit required or optional (“should”)? A checker has to guess.</li>
+      <li><strong>Uniqueness is a board-level required rule with a local remedy.</strong> “Names must not be duplicated” is absolute, then “the user should determine how to resolve the issue”. Two collaborators following the text can both be right.</li>
+      <li><strong>“both are valid tickets” invites tools to accept anything.</strong> If a ticket can violate a required rule and remain valid, the word “must” is decorative — exactly the problem the v0.5 conformance section was added to fix.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Add a short vocabulary block immediately after the conformance paragraph:</p>
+      <p>“A <strong>valid ticket</strong> is a file that satisfies the Basic definition; it is either a ticket or it is not. A <strong>conforming ticket</strong> is a valid ticket that also satisfies every required ticket rule in Strict. A <strong>compliant board</strong> contains only conforming tickets and satisfies every required board rule. A nonconforming ticket can exist in a non-compliant board; it is still a valid ticket, and tools should locate it but report the violation.”</p>
+      <p>Then label each rule: prefix required rules with “Required:” and optional ones with “Optional:” (or use a table of rule IDs). Rewrite the priority sentence as:</p>
+      <p>“Required: a strict ticket's filename begins with a two-digit priority, <code>00</code>–<code>99</code>, where <code>00</code> sorts first. <code>fix-bug.md</code> is a valid ticket but a nonconforming filename; the board containing it is non-compliant.”</p>
+      <p>For uniqueness, say what happens on violation: “A duplicate name is a board-level violation. Tools report both files and do not choose a winner; the user resolves it.”</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one vocabulary that makes “must” enforceable, and rule classes that a checker can implement without inference.</p>
+  </article>
+
+  <article class="suggestion" id="S23" data-suggestion-id="S23">
+    <div class="suggestion-head">
+      <span class="id-badge">S23</span>
+      <h2>The 30-character filename limit cannot work as written</h2>
+    </div>
+    <p class="where">Strict → Tickets → filename length · follows up v2 <a href="fit-spec-suggestions-v2.html#S15">S15</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket's filename name should be shorter than 30 characters (including extention and status). Going over this limit may cause display issues when rendering the ticket name in some tools.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“including … status” is self-defeating.</strong> The status alone can be longer than the whole budget: <code>in_progress/</code> is 12 characters. Add <code>00-</code> (3) and <code>.md</code> (3), and 12 of the 30 are gone before any name exists. A ticket in <code>in_progress/blocked/</code> leaves almost nothing.</li>
+      <li><strong>It is a 30-character limit masquerading as a filename limit.</strong> The text says “filename name … including extension and status”, three different measurements in one sentence. Tools must choose between the basename, the stem, and the board-relative path — and each gives a different pass/fail for the same ticket.</li>
+      <li><strong>It conflicts with the naming template.</strong> The template asks for a “dash-separated-short-name”; after mandatory priority and extension, about 24 characters remain, and after a status segment, often 12–18. That is not enough for ordinary names such as <code>fix-typo-in-readme</code> (18) plus <code>in_progress/</code>.</li>
+      <li><strong>The consequence is a display issue, not a validity rule.</strong> “Should” plus “may cause display issues” reads as optional, yet it shares a section with “must” rules and the 30 value looks normative.</li>
+      <li><strong>It silently reverses the previous 80-character guidance</strong> without saying so, so tools and boards built against the earlier spec are now nonconforming for ordinary names.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Pick one measurement and one purpose. Proposed text:</p>
+      <p>“Optional: keep a ticket's <strong>short name</strong> (the part after <code>NN-</code> and before <code>.md</code>) to 60 characters or fewer. This is display guidance, not a validity rule; tools may warn but must not reject a ticket. The filename's directory path and extension do not count.”</p>
+      <p>If a hard cap is actually wanted, state it as required and give the exact unit, for example: “Required: the board-relative path of a ticket is at most 120 characters, and the basename at most 60.” Do not mix status, extension, and name in one limit.</p>
+      <p>Either way, show one compliant and one noncompliant example, and state explicitly that the 80-character figure from earlier revisions is superseded.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one measurable limit that ordinary ticket names can satisfy, and no conflict with the template.</p>
+  </article>
+
+  <article class="suggestion" id="S24" data-suggestion-id="S24">
+    <div class="suggestion-head">
+      <span class="id-badge">S24</span>
+      <h2>Pin down identity, uniqueness, projects, and display names</h2>
+    </div>
+    <p class="where">Strict → Tickets → identity and naming · follows up v2 <a href="fit-spec-suggestions-v2.html#S14">S14</a>, <a href="fit-spec-suggestions-v2.html#S15">S15</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket's identity (name) is the short name within the filename. Ticket names must not be duplicated within the FIT board, and if such a case arises the user should determine how to resolve the issue (delete one, merge the two, etc). When displayed as a name and not a filename, the ticket's name should be in title-case with "-" replaced with " ".”</p>
+      <p>“Projects should be denoted within a ticket or its filename.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“Identity” is now the short name, not the path.</strong> That is a real design choice, but nothing says what happens to identity when the priority changes (same identity — good) or when the name changes (new identity). Tools that address tickets by path, name, or filename need the rule stated, and the relationship between identity and location is left implicit.</li>
+      <li><strong>Uniqueness scope is undefined at the edges.</strong> “Within the FIT board” — does it include <code>archive.md</code> entries, tickets moved to a backup location, or tickets in <code>closed</code>? Can a name be reused after its ticket is archived or deleted? “Within the board” suggests not, but nothing says.</li>
+      <li><strong>Projects were moved from subdirectories into “a ticket or its filename”.</strong> The previous revision allowed project subdirectories. Now subdirectories mean only sub-statuses, and a project must appear in the filename — which, combined with board-wide unique short names, forces project prefixes into every name. That deserves an explicit decision, not a “should”.</li>
+      <li><strong>Title-case display is under-specified.</strong> What is the display name of <code>00-fix-2fa-login.md</code>? “Fix 2fa Login”? “Fix 2FA Login”? What about digits, acronyms, and names that are already capitalized? A display rule that tools implement differently creates duplicate-looking names.</li>
+      <li><strong>The uniqueness rule has no checker behavior.</strong> Required rule, user remedy, no statement that a tool reports duplicates rather than refusing to open the board.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>State the model in three sentences:</p>
+      <p>“A ticket's <strong>identity</strong> is its short name: the filename with the <code>NN-</code> prefix and <code>.md</code> extension removed. Identity is stable across priority changes and status moves; changing the short name is a rename and creates a new identity. The <strong>location</strong> of a ticket is its board-relative path, and tools that need a unique address use the path.”</p>
+      <p>For uniqueness: “Short names must be unique among tickets currently in the board, including archived entries recorded in <code>archive.md</code>. A name may be reused only after its ticket has been deleted or removed to a backup location; a warning should be reported when a reuse is detected.”</p>
+      <p>Replace the project sentence with an explicit choice, e.g.: “Projects are recorded in the short name (for example, <code>00-checkout-fix-tax.md</code>) or in frontmatter; subdirectories under a status directory are sub-statuses, not projects.”</p>
+      <p>For display: “Display name = short name split on <code>-</code>, each segment capitalized, joined with spaces; digits and acronyms are left as written.”</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one addressing rule, a testable uniqueness boundary, an explicit project convention, and a deterministic display name.</p>
+  </article>
+
+  <article class="suggestion" id="S25" data-suggestion-id="S25">
+    <div class="suggestion-head">
+      <span class="id-badge">S25</span>
+      <h2>Specify the <code>STRICT</code> marker and version rules</h2>
+    </div>
+    <p class="where">Document header, Strict → Board · follows up v2 <a href="fit-spec-suggestions-v2.html#S11">S11</a>, <a href="fit-spec-suggestions-v2.html#S18">S18</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Version <code>0.5</code>”</p>
+      <p>“Strict rules are versioned, and a tool that validates them should state the version being used.”</p>
+      <p>“A board is denoted as being in "strict" mode when it has a text file named "STRICT" at the root, containing the version string of the spec being used.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>The version string format is undefined.</strong> Does the <code>STRICT</code> file contain <code>0.5</code>, <code>Version 0.5</code>, <code>v0.5</code>, or <code>0.5\n</code>? Is the filename case-sensitive (<code>STRICT</code> vs <code>strict</code>)? A checker cannot parse it from the text.</li>
+      <li><strong>Behavior for unknown versions is unstated.</strong> A tool that implements 0.5 opening a board marked <code>0.6</code> or <code>1.0</code> has no instruction: validate what it knows, warn, refuse, or treat as basic? Same question for a malformed or empty file.</li>
+      <li><strong>The version is duplicated.</strong> The document header says <code>Version 0.5</code>; the marker holds “the version string”; “strict rules are versioned”. Which one is authoritative, and what is the compatibility rule between 0.5 and 0.5.1?</li>
+      <li><strong>Opt-in is one-directional.</strong> The text says how a board opts in; it never says that removing <code>STRICT</code> returns the board to basic (it should), or whether a basic board may contain a <code>STRICT</code> file for another reason.</li>
+      <li><strong>“Should state the version” is the only tool requirement</strong>, and it is optional under the rule classification, so a validator may claim strict support without naming a version.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“A board is in <strong>strict mode</strong> when it contains a file named exactly <code>STRICT</code> at the board root. Its content is the version string on a single line, exactly matching the version in this document's header (<code>0.5</code>), optionally followed by a newline. Removing the file returns the board to basic mode; it has no other effect.</p>
+      <p>A tool that validates strict mode must report the version it implements. If the marker's version is newer than the tool supports, the tool must report ‘unsupported strict version’ and must not report rule violations it cannot evaluate. A malformed marker is a required violation of the marker rule, not a reason to ignore the board.</p>
+      <p>Versions are major.minor. A tool supporting <code>0.x</code> may validate any <code>0.y</code> with a warning when <code>y</code> differs; a <code>1.x</code> marker is unsupported until the tool declares support.”</p>
+      <p>Pick one source of truth: the header declares the current version, and <code>STRICT</code> records it.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one parseable marker, defined behavior for unknown versions, and a downgrade path back to basic.</p>
+  </article>
+
+  <article class="suggestion" id="S26" data-suggestion-id="S26">
+    <div class="suggestion-head">
+      <span class="id-badge">S26</span>
+      <h2>Ordering still misses several board shapes</h2>
+    </div>
+    <p class="where">Basic → ordering; Strict → Board → sub-statuses · follows up v2 <a href="fit-spec-suggestions-v2.html#S16">S16</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Ticket ordering within the FIT board is status directory (in sort order specified above) -&gt; sub-status directory by name ascending -&gt; filename ascending. (An example of strings in ascending order: "00", "01", "10", "9", "B", "a", "b". Note the lack of a leading '0' on '9'.)”</p>
+      <p>“Basic-compliant boards may have additional status directories within the base board directory.”</p>
+      <p>“Subdirectories within top-level status directories may be sub-statues.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>One sub-status level only.</strong> Basic defines a ticket's full status as “the '/'-conjoined directory names” — plural, arbitrary depth. Ordering names one “sub-status directory” then filename, so <code>open/a/b/00-x.md</code> has no defined position relative to <code>open/a/01-y.md</code> or <code>open/b/00-z.md</code>.</li>
+      <li><strong>Tickets directly in a status directory have no stated position.</strong> Is <code>open/00-a.md</code> listed before or after everything in <code>open/blocked/</code>? The chain implies directory first, but a directory and a file are different kinds of nodes and the text does not say which comes first or whether a bare ticket counts as its own group.</li>
+      <li><strong>Additional Basic status directories have no sort position.</strong> Basic explicitly allows them, but “sort order specified above” only names the four. Where does <code>blocked/</code> or <code>review/</code> go: alphabetically after <code>closed</code>, before <code>in_progress</code>, or somewhere user-defined? A whole board listing is unreproducible.</li>
+      <li><strong>Collation is implied, not stated.</strong> The example shows <code>B</code> before <code>a</code> and <code>9</code> after <code>10</code>, which implies code-point or byte order, but the text says only “ascending”. Locale, case, Unicode normalization, and <code>_</code> vs <code>-</code> are unspecified.</li>
+      <li><strong>Duplicates and archives.</strong> Basic permits arbitrary names and duplicates, so a tie-break is still needed at the Basic level; and where <code>archive.md</code> sorts is undefined (see S21).</li>
+      <li><strong>“sub-statues”</strong> is a typo for “sub-statuses”, which matters in a normative sentence.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“Tickets are ordered by their board-relative paths under a fixed traversal:</p>
+      <ul>
+        <li>Status directories first, in this order: <code>in_progress</code>, <code>open</code>, <code>backlog</code>, <code>closed</code>. A basic board with additional status directories places them after these four, sorted by name.</li>
+        <li>Within a status directory, tickets directly inside it come first, sorted by filename.</li>
+        <li>Then sub-status directories, sorted by name, each traversed by the same rule recursively.</li>
+      </ul>
+      <p>Comparisons are by Unicode code point, case-sensitive, with no locale collation or normalization; digits compare as text. The example <code>"00" &lt; "01" &lt; "10" &lt; "9" &lt; "B" &lt; "a" &lt; "b"</code> illustrates this. When two tickets would compare equal, the longer full path sorts after the shorter.”</p>
+      <p>This also settles where a bare <code>open/00-a.md</code> sits relative to <code>open/blocked/01-b.md</code>: before it.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> a complete traversal that any two implementations can reproduce, including basic boards with extra statuses.</p>
+  </article>
+
+  <article class="suggestion" id="S27" data-suggestion-id="S27">
+    <div class="suggestion-head">
+      <span class="id-badge">S27</span>
+      <h2>Finish the archive mechanics and archived-ticket status</h2>
+    </div>
+    <p class="where">Strict → Lifecycle → archiving · follows up v2 <a href="fit-spec-suggestions-v2.html#S17">S17</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A closed ticket may be archived by appending its contents to an archive.md file within the 'closed' directory. The format of the document is thus:”</p>
+      <pre><code>### &lt;file path including the 'fit' directory&gt;
+&lt;contents as written in the .md file&gt;
+&lt;intentionally-black line&gt;</code></pre>
+      <p>“Archived tickets may be moved from the board to a backup location. Archived tickets so removed from the board are still considered valid tickets with a status of "closed" for project history purposes, and an archive file may be moved back into the 'closed' status directory in the future. Note that the board's git history is not considered a reliable backup location.”</p>
+      <p>“The "closed" directory does not need to contain an "archive.md" file, it only exists when there are archived tickets present.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>The append step does not say to remove the original.</strong> “Archived by appending its contents” produces a copy; if the original ticket file stays in <code>closed/</code>, the ticket exists twice — once as a file and once as an entry — and name uniqueness breaks immediately. If the original is removed, that must be stated, along with whether it is a move or a copy.</li>
+      <li><strong>“intentionally-black line”</strong> is presumably an intentionally blank line, but the format is normative; a literal blank line and the literal words differ.</li>
+      <li><strong>The heading format is under-specified.</strong> “file path including the 'fit' directory” — is it <code>### fit/closed/00-x.md</code> or an absolute/relative path? Are the angle brackets placeholders? Is the path the record key, and may it repeat (two archived versions of the same ticket)?</li>
+      <li><strong>Archived entries are not defined as records.</strong> Do they retain frontmatter? Does an entry count as a ticket for uniqueness, ordering, or validation? Can a user edit <code>archive.md</code> by hand, and is the file then required to remain valid Markdown?</li>
+      <li><strong>“still considered valid tickets with a status of closed”</strong> contradicts the definition that a ticket is a file inside a status folder; once moved to a backup location, there is no status folder. It also makes the ticket “discoverable” in principle while not on the board.</li>
+      <li><strong>Restoring is one sentence with no procedure.</strong> If <code>archive.md</code> is moved back into <code>closed/</code>, is it a container to be parsed or a giant ticket? If individual tickets are restored, where do they go and what happens to the archive entry?</li>
+      <li><strong>No rule for ordering or display</strong> of <code>archive.md</code> relative to live closed tickets.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“To archive a closed ticket, append one record to <code>closed/archive.md</code> and then delete the ticket file. A record is:</p>
+      <pre><code>### &lt;board-relative path of the deleted ticket&gt;
+&lt;the ticket file's contents, including any frontmatter&gt;
+
+</code></pre>
+      <p>“The path is relative to the board root and begins with <code>fit/</code>; the header's blanks separate records. <code>archive.md</code> is a container and is not itself a ticket (see the ticket definition). Entries are historical records: they do not participate in ordering, and their names are not reserved for live tickets.</p>
+      <p>Archived records may be copied out of the board as a backup. They remain history, not board tickets; they have no live status. To restore one, copy its content into a new <code>.md</code> file under a status directory and remove the record. Moving <code>archive.md</code> back into <code>closed/</code> is not a restore; a restored board must not contain <code>archive.md</code> as a ticket.”</p>
+      <p>Also decide whether hand-editing is allowed (yes, as Markdown) and whether a malformed record is a warning.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> an archive operation with no duplicates, a parseable record format, and archived history that cannot re-enter the board as a ticket by accident.</p>
+  </article>
+
+  <article class="suggestion" id="S28" data-suggestion-id="S28">
+    <div class="suggestion-head">
+      <span class="id-badge">S28</span>
+      <h2>Close the frontmatter gaps</h2>
+    </div>
+    <p class="where">Basic → frontmatter; Strict → Git · follows up v2 <a href="fit-spec-suggestions-v2.html#S19">S19</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket's frontmatter must begin at the first line of the file, and be formatted as follows:”</p>
+      <pre><code>- A line containing exactly "---"
+- A block of valid YAML
+- a line containing exactly "---"</code></pre>
+      <p>“Frontmatter is metadata, and is non-authorative for data derived from the ticket's path (status, filename, identity, and priority).”</p>
+      <p>“Reserved frontmatter keys are:”</p>
+      <pre><code>- "completed", containing the ISO 8601 date/datetime that a ticket was completed. Optional
+- "commit", containing the commit hash of the commit that resolved the ticket, if the ticket is untracked. Optional</code></pre>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>Unclosed blocks are undefined.</strong> If the opening <code>---</code> exists but the closing one never comes, is the file’s body parsed as frontmatter, as text, or is it invalid? Writers need a rule for the case where a user forgets the delimiter.</li>
+      <li><strong>“Valid YAML” has no failure mode.</strong> Invalid YAML in an otherwise valid ticket: required violation, warning, or treated as body? The conformance model needs an answer.</li>
+      <li><strong>Empty frontmatter is undefined.</strong> A pair of delimiters with no keys between them is syntactically a block but arguably not “a block of valid YAML”.</li>
+      <li><strong>“if the ticket is untracked”</strong> conflicts with the Git section, which frames the same key as “tracked by a different repository/branch”. A ticket tracked on the parent’s <code>fit</code> branch is tracked, yet that is exactly the mode the Git section says may record <code>commit</code>. The condition should describe the board’s tracking mode, not an ambiguous “untracked”.</li>
+      <li><strong>Key value formats are loose.</strong> “ISO 8601 date/datetime” allows <code>2026-11-08</code>, <code>2026-11-08T12:00:00Z</code>, and timezone offsets; “commit hash” does not say full or abbreviated. Tools that read these fields will disagree.</li>
+      <li><strong>The angle-bracket conventions and list punctuation</strong> in the format block are inconsistent (quoted delimiters, lowercase “a line”, a stray space on the next line), and “non-authorative” is misspelled in a normative sentence.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“Frontmatter is delimited by two lines containing exactly <code>---</code>, the first on line 1 of the file. If no closing delimiter is found, the file has no frontmatter and the opening line is body text. The block between the delimiters may be empty and must otherwise parse as a YAML mapping. Invalid YAML is a required violation; tools must still show the ticket and must not treat the YAML as body.</p>
+      <p>Reserved keys: <code>completed</code> — an ISO 8601 calendar date (<code>YYYY-MM-DD</code>) or a full UTC timestamp with <code>Z</code>; <code>commit</code> — the full 40-character hash of the commit that resolved the work, recorded when the board is not tracked on the same branch as the work. Both are optional and may be absent.”</p>
+      <p>Add one example frontmatter block, and state that frontmatter never changes identity, priority, status, or location (already present).</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> deterministic parsing, a defined failure mode, and <code>completed</code>/<code>commit</code> values that all tools read the same way.</p>
+  </article>
+
+  <article class="suggestion" id="S29" data-suggestion-id="S29">
+    <div class="suggestion-head">
+      <span class="id-badge">S29</span>
+      <h2>Define where the summary ends, and restore body guidance</h2>
+    </div>
+    <p class="where">Strict → Tickets → summary and sections · follows up v2 <a href="fit-spec-suggestions-v2.html#S20">S20</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket may have a summary section at the beginning of its body (immediately following the frontmatter/at the first line if no frontmatter). The summary should be 1 to 3 sentences describing the purpose of the ticket.”</p>
+      <p>“Anything beyond the summary must have a sub-header ("### \&lt;sub-header name\&gt;") .”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“The summary” has no end marker.</strong> Is it the first sentence, the first three sentences, the first paragraph, or everything before the first heading? A ticket with two introductory paragraphs is either one summary or a summary plus a section without a heading. The rule that anything beyond it “must” have an H3 is unenforceable until the boundary is defined.</li>
+      <li><strong>Common body shapes are unaddressed.</strong> A short bullet list, a table, or a code block immediately after the summary: does each need an H3? A one-line ticket with no body: allowed (it says “may have a summary”)? A ticket whose entire body is a checklist?</li>
+      <li><strong>H3 is hard-coded.</strong> “must have a sub-header ("### …")” forbids H2 (the more common top level) and makes the rule about presentation rather than structure. If the intent is “any heading”, say so; if H3 is intentional, say why and what H1/H2 mean.</li>
+      <li><strong>The heading requirement is required, but reads as optional.</strong> The sentence says “must”, while the summary itself says “should”. Under the conformance model that is a required rule; it should be labelled as such and given a violation consequence.</li>
+      <li><strong>Body-length guidance is still missing.</strong> v0.5 removed the old ~250-character target and did not replace it. The summary is now the only content rule, and it bounds the opening, not the ticket.</li>
+      <li><strong>“summary section” vs “sub-header”</strong> mixes section terminology with headings; the escaped placeholder <code>\&lt;sub-header name\&gt;</code> plus a trailing space before the period reads like an unfinished edit.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“The body begins after the frontmatter. Its <strong>summary</strong> is the text before the first heading, or the whole body if there is no heading; it should be one paragraph of one to three sentences stating the ticket's purpose. A ticket whose entire body is a single paragraph needs no heading.</p>
+      <p>If the body contains anything after that first paragraph, each such part must start with a Markdown heading of level 2 or deeper (<code>##</code> or <code>###</code>). Headings must not skip a level. Lists, tables, and code blocks that belong to the summary may follow it without a heading; anything with its own topic gets one.</p>
+      <p>Optional: keep the whole body near 250 characters (about three 80-character lines). This is guidance; tools may warn but must not reject a longer ticket.”</p>
+      <p>Replace the escaped placeholder with a concrete example heading such as <code>## Notes</code>.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> a defined summary boundary, headings that match real Markdown, and a content target that survived the v0.5 rewrite.</p>
+  </article>
+
+  <article class="suggestion" id="S30" data-suggestion-id="S30">
+    <div class="suggestion-head">
+      <span class="id-badge">S30</span>
+      <h2>Fix the Git prose and close sequencing</h2>
+    </div>
+    <p class="where">Strict → Git · follows up v2 <a href="fit-spec-suggestions-v2.html#S18">S18</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A "/fit/" directory entry may be included in the .gitignore of its parent repository. The use of "/fit/" and not "fit/" ensures that subdirectories of the parent project that happen to be named "fit" for some reason are not excluded”</p>
+      <p>“An FIT board that is untracked by its parent repository may be untracked by a git repository, or it may be tracked by its own indepdent git repository, or it may be tracked by a seperate branch of the parent repository (which must be named "fit").”</p>
+      <p>“When a FIT board is initialized within a project, by default it is tracked by the parent repository. This status may change at any time.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“may be untracked by a git repository”</strong> is ungrammatical and ambiguous: it presumably means “need not be tracked by any Git repository”. As written it says the board may be untracked <em>by</em> a repository, which is true of every file that is not in one.</li>
+      <li><strong>Close sequencing is still missing for the <code>fit</code>-branch mode.</strong> Moving a ticket to <code>closed</code> changes the worktree on the <code>fit</code> branch, but the rule about “the commit that finishes the work” applies to the work branch. The text should say the close is committed on the <code>fit</code> branch, separately, before or after the work commit.</li>
+      <li><strong>“By default it is tracked by the parent repository”</strong> has no operational definition. Default at initialization by a tool, by the user, or by the presence of a <code>.gitignore</code> entry? A board initialized outside a repository cannot be tracked by a parent at all.</li>
+      <li><strong>The <code>/fit/</code> advice only covers a board at the repository root.</strong> A basic board may live anywhere (the root board directory “be named anything”), and strict allows the board outside the repository entirely. In those cases the suggested ignore entry is wrong or irrelevant.</li>
+      <li><strong>The two Git sections conflict on <code>commit</code>.</strong> Basic says the key applies “if the ticket is untracked”; Git says it may be used when tracked by a different repository/branch. Those overlap but are not the same condition.</li>
+      <li><strong>The branch name is required (“must be named fit”) but the mode is described only for a board “untracked by its parent repository”.</strong> A worktree on <code>fit</code> is usually both excluded from parent tracking and tracked by that branch; the text never says the <code>.gitignore</code> entry is what makes those coexist.</li>
+      <li><strong>Typos in normative text:</strong> “indepdent”, “seperate”, and the missing period after “not excluded”.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“A board may be tracked inline by its parent repository (the default when initialized inside one), tracked by its own repository, or tracked by a separate branch of the parent repository named <code>fit</code>. It may also be kept entirely outside version control. The inline mode needs no special setup; the <code>fit</code>-branch mode requires the board path to be listed in the parent's <code>.gitignore</code> (for a board at the repository root, use <code>/fit/</code>).”</p>
+      <p>Then the closing rules, per mode:</p>
+      <ul>
+        <li>Inline: move the ticket to <code>closed</code> and commit the move with the work in one commit.</li>
+        <li><code>fit</code> branch / separate repository: commit the move on the board's branch or repository, separately from the work commit. The ticket may record <code>commit</code> and <code>completed</code> in frontmatter.</li>
+        <li>No version control: nothing to commit; <code>completed</code> is recommended so the date survives.</li>
+      </ul>
+      <p>Define the default as “a tool that initializes a board inside a repository should track it inline unless asked otherwise”, and drop “this status may change at any time” (it is true of all Git state and adds nothing).</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> grammatical modes, a close procedure per mode, and consistent conditions for the <code>commit</code> key.</p>
+  </article>
+
+  <article class="appendix" id="appendix">
+    <div class="suggestion-head">
+      <span class="id-badge">A</span>
+      <h2>Appendix: typos, S11–S20 disposition, and smallest edit</h2>
+    </div>
+
+    <h3>Typos and wording to fix in the same edit</h3>
+    <table>
+      <thead>
+        <tr><th>Current</th><th>Corrected</th><th>Where</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>unneccessarily</code></td><td><code>unnecessarily</code></td><td>Freestyle</td></tr>
+        <tr><td><code>extention</code></td><td><code>extension</code></td><td>Basic → ticket definition; Strict → 30-char rule</td></tr>
+        <tr><td><code>non-authorative</code></td><td><code>non-authoritative</code></td><td>Basic → frontmatter</td></tr>
+        <tr><td><code>preferrs</code></td><td><code>prefers</code></td><td>Basic → naming</td></tr>
+        <tr><td><code>behond</code></td><td><code>beyond</code></td><td>Basic → closing paragraph</td></tr>
+        <tr><td><code>more strict then</code></td><td><code>stricter than</code></td><td>Strict → opening</td></tr>
+        <tr><td><code>other then</code></td><td><code>other than</code></td><td>Strict → Board</td></tr>
+        <tr><td><code>sub-statues</code></td><td><code>sub-statuses</code></td><td>Strict → Board</td></tr>
+        <tr><td><code>indepdent</code></td><td><code>independent</code></td><td>Strict → Git</td></tr>
+        <tr><td><code>seperate</code></td><td><code>separate</code></td><td>Strict → Lifecycle and Git</td></tr>
+        <tr><td><code>intentionally-black line</code></td><td><code>intentionally blank line</code></td><td>Strict → archive format</td></tr>
+        <tr><td><code>filename name</code></td><td><code>short name</code> (or <code>filename</code>)</td><td>Strict → 30-char rule</td></tr>
+        <tr><td><code>the root board directory be named anything</code></td><td><code>may be named anything</code></td><td>Basic → naming</td></tr>
+        <tr><td><code>A FIT board</code> / <code>an FIT</code> mixed</td><td>Pick one article and casing</td><td>Whole document</td></tr>
+        <tr><td><code>url-illegal</code> / <code>a line</code> / trailing spaces</td><td>Capitalize sentences; remove stray whitespace</td><td>Whole document</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Disposition of the previous review</h3>
+    <table>
+      <thead>
+        <tr><th>v2</th><th>Topic</th><th>v0.5 status</th><th>Now</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>S11</td><td>Conformance that can fail</td><td><span class="state fixed">Addressed</span> — required/optional, strict-implies-basic, versioning</td><td>S22, S25</td></tr>
+        <tr><td>S12</td><td>Basic as a subset of Strict</td><td><span class="state fixed">Addressed</span> — explicit, with “strict wins”</td><td>—</td></tr>
+        <tr><td>S13</td><td>Single <code>in_progress</code></td><td><span class="state fixed">Addressed</span> — subdirectories and branches scoped</td><td>—</td></tr>
+        <tr><td>S14</td><td>Ticket definition and identity</td><td><span class="state partly">Partly</span> — <code>.md</code>, path status; identity only in Strict; archive hole</td><td>S21, S24</td></tr>
+        <tr><td>S15</td><td>Naming template</td><td><span class="state partly">Partly</span> — <code>00</code> high, lowercase, valid-vs-conforming; 30-char rule broken</td><td>S22, S23, S24</td></tr>
+        <tr><td>S16</td><td>Ordering</td><td><span class="state partly">Partly</span> — status/sub-status/filename; multi-level and extra statuses undefined</td><td>S26</td></tr>
+        <tr><td>S17</td><td>Archiving</td><td><span class="state partly">Partly</span> — concrete format; container is a ticket, mechanics missing</td><td>S21, S27</td></tr>
+        <tr><td>S18</td><td>Git modes</td><td><span class="state partly">Partly</span> — modes enumerated; <code>fit</code>-branch sequencing and grammar</td><td>S30</td></tr>
+        <tr><td>S19</td><td>Frontmatter</td><td><span class="state partly">Partly</span> — delimited, non-authoritative; failure modes and key formats</td><td>S28</td></tr>
+        <tr><td>S20</td><td>First line and body</td><td><span class="state partly">Partly</span> — summary added; boundary, H3 rule, no length guidance</td><td>S29</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Smallest useful edit</h3>
+    <p>If only one change is made: adopt <strong>S22</strong>. The new conformance framework is the part v0.5 got right, and the “required rules / valid tickets” contradiction is the one line that makes every other rule answerable. The cheapest one-line fix is <strong>S21</strong>: say that <code>archive.md</code> is not a ticket.</p>
+  </article>
+
+  <footer>
+    <p>Reference IDs: <code>S21</code>–<code>S30</code>. Reviewed upstream <code>FIT_SPEC.md</code>
+    at commit <code>22982bf</code>, version <code>0.5</code>; the specification remains the source
+    of truth. This page proposes text and does not apply it.</p>
+  </footer>
+</main>
+</body>
+</html>

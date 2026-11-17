@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIT Spec: Ten Clarifying Improvements</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --paper: #161b22;
+    --ink: #e6edf5;
+    --muted: #9aa8ba;
+    --line: #2b3440;
+    --accent: #63b3ff;
+    --accent-soft: #122a44;
+    --warn-soft: #2b2214;
+    --warn-line: #9b7430;
+    --good-soft: #14261b;
+    --good-line: #3f7f57;
+    --code-bg: #232c38;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header.hero {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 30px 32px;
+    margin-bottom: 26px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  .meta {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.76rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .note {
+    background: var(--good-soft);
+    border: 1px solid var(--good-line);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note strong { display: block; margin-bottom: 4px; }
+  nav.toc {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 26px;
+  }
+  nav.toc h2 {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.3rem;
+  }
+  nav.toc li { margin: 7px 0; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+  nav.toc a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+  nav.toc .ref {
+    display: inline-block;
+    min-width: 2.7rem;
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  nav.toc .kind {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  article.suggestion {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 30px 28px;
+    margin: 22px 0;
+    scroll-margin-top: 20px;
+  }
+  article.suggestion:target {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .suggestion-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .id-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #06111f;
+    border-radius: 7px;
+    padding: 3px 9px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  article.suggestion h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .where {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 0 0 18px;
+  }
+  h3 {
+    margin: 22px 0 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  blockquote.current {
+    margin: 0;
+    padding: 12px 16px;
+    background: var(--warn-soft);
+    border-left: 3px solid var(--warn-line);
+    border-radius: 0 8px 8px 0;
+    color: #e7d3a2;
+    font-size: 0.94rem;
+  }
+  .proposal {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--good-soft);
+    border-left: 3px solid var(--good-line);
+    border-radius: 0 8px 8px 0;
+    font-size: 0.95rem;
+  }
+  .proposal p { margin: 0 0 10px; }
+  .proposal p:last-child { margin-bottom: 0; }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.32em;
+    font: 0.88em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .effect {
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .effect strong { color: var(--ink); }
+  footer {
+    margin-top: 34px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    text-align: center;
+  }
+  a { color: var(--accent); }
+  @media print {
+    :root {
+      color-scheme: light;
+      --bg: #fff;
+      --paper: #fff;
+      --ink: #1d2430;
+      --muted: #5d6978;
+      --line: #bbb;
+      --accent: #0b5cad;
+      --accent-soft: #e8f1fb;
+      --warn-soft: #fff6e5;
+      --warn-line: #c79a3f;
+      --good-soft: #eaf7ef;
+      --good-line: #6aa784;
+      --code-bg: #eef1f5;
+    }
+    body { background: #fff; }
+    main { max-width: none; padding: 0; }
+    article.suggestion, header.hero, nav.toc { break-inside: avoid; }
+    nav.toc { break-after: page; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <h1>FIT Spec: Ten Clarifying Improvements</h1>
+    <p class="subtitle">Editorial and normative clarifications to the existing FIT specification — no new board features, commands, or workflow requirements.</p>
+    <div class="meta">
+      <span class="pill">10 suggestions</span>
+      <span class="pill">Reference IDs S01–S10</span>
+      <span class="pill">Spec-only changes</span>
+    </div>
+  </header>
+
+  <div class="note">
+    <strong>How to use this document</strong>
+    Each suggestion has a stable anchor: <code>S01</code> through <code>S10</code>. Link directly with <code>#S01</code>, or cite the visible ID in review comments. “Current text” quotes the FIT spec; “Suggested clarification” is proposed wording, not a mandate to add features.
+  </div>
+
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Suggestions</h2>
+    <ol>
+      <li><a href="#S01"><span class="ref">S01</span> Canonicalize the status directory spelling</a> <span class="kind">— consistency</span></li>
+      <li><a href="#S02"><span class="ref">S02</span> State how normative language is used</a> <span class="kind">— conformance</span></li>
+      <li><a href="#S03"><span class="ref">S03</span> Define what counts as a ticket file</a> <span class="kind">— scope</span></li>
+      <li><a href="#S04"><span class="ref">S04</span> Clarify status versus project subdirectories</a> <span class="kind">— structure</span></li>
+      <li><a href="#S05"><span class="ref">S05</span> Define ticket ordering precisely</a> <span class="kind">— ordering</span></li>
+      <li><a href="#S06"><span class="ref">S06</span> Explain the priority prefix</a> <span class="kind">— naming</span></li>
+      <li><a href="#S07"><span class="ref">S07</span> Limit frontmatter to descriptive metadata</a> <span class="kind">— frontmatter</span></li>
+      <li><a href="#S08"><span class="ref">S08</span> Make lifecycle transitions explicit</a> <span class="kind">— lifecycle</span></li>
+      <li><a href="#S09"><span class="ref">S09</span> Frame the body-length rule as guidance</a> <span class="kind">— content</span></li>
+      <li><a href="#S10"><span class="ref">S10</span> Reconcile Git and archival options</a> <span class="kind">— Git</span></li>
+    </ol>
+  </nav>
+
+  <article class="suggestion" id="S01" data-suggestion-id="S01">
+    <div class="suggestion-head">
+      <span class="id-badge">S01</span>
+      <h2>Canonicalize the status directory spelling</h2>
+    </div>
+    <p class="where">Board → status directories</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A fit board is a directory … consisting of the following child directories: <code>open</code>, <code>closed</code>, <code>in_progress</code>, <code>backlog</code>.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>The full spec uses <code>in_progress</code>, while the repository README’s short specification uses <code>in-progress</code>. Readers and tools can reasonably disagree about which directory name is valid.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>State that the canonical directory names are exactly <code>open</code>, <code>in_progress</code>, <code>backlog</code>, and <code>closed</code>, with an underscore in <code>in_progress</code>. Hyphenated variants are not board statuses.</p>
+      <p>If alias handling is desired, keep it explicitly outside the spec: “Tools may accept <code>in-progress</code> as user input, but boards store <code>in_progress</code>.”</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> removes an observed contradiction without changing the directory model.</p>
+  </article>
+
+  <article class="suggestion" id="S02" data-suggestion-id="S02">
+    <div class="suggestion-head">
+      <span class="id-badge">S02</span>
+      <h2>State how normative language is used</h2>
+    </div>
+    <p class="where">Whole document</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">The spec mixes “may”, “by convention”, “should”, “recommend”, and declarative statements without defining which are requirements for a valid board.</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>A reader cannot tell whether an ignored “should” produces an invalid board, a warning, or merely a style preference. Implementation authors need that distinction.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>Add a short conformance paragraph: <strong>MUST</strong> marks structural requirements for a valid board; <strong>SHOULD</strong> marks strong recommendations whose violation is allowed but noteworthy; <strong>MAY</strong> marks optional choices. Text marked “by convention” is a SHOULD unless stated otherwise.</p>
+      <p>Then use those terms consistently, and define “valid board” and “conforming board” once. This classifies existing statements rather than adding new obligations.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> makes the existing rules testable and removes ambiguity about “ideally”, “recommend”, and “by convention”.</p>
+  </article>
+
+  <article class="suggestion" id="S03" data-suggestion-id="S03">
+    <div class="suggestion-head">
+      <span class="id-badge">S03</span>
+      <h2>Define what counts as a ticket file</h2>
+    </div>
+    <p class="where">Tickets</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A ticket is a markdown file within one of the aforementioned folders.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>“Markdown file” does not say whether <code>.markdown</code> counts, whether extension case matters, whether hidden files such as <code>.gitkeep</code> are tickets, or whether the spec document itself is a ticket. The spec also permits root-level <code>FIT_SPEC.md</code>.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>Define a ticket as a file whose name ends in <code>.md</code>, located at any depth beneath one of the four status directories. Non-Markdown files, dotfiles such as <code>.gitkeep</code>, and Markdown at the board root (including <code>FIT_SPEC.md</code>) are not tickets.</p>
+      <p>State that a ticket’s identity is its board-relative path. Renaming or moving a ticket therefore changes its identity even though its content is unchanged.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> gives tool authors one discovery rule and explains why exact paths matter.</p>
+  </article>
+
+  <article class="suggestion" id="S04" data-suggestion-id="S04">
+    <div class="suggestion-head">
+      <span class="id-badge">S04</span>
+      <h2>Clarify status versus project subdirectories</h2>
+    </div>
+    <p class="where">Board → subdirectories</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“These subdirectories may be additional, more granular statuses, or directories specific to a particular overall ticket. If both are desired, directories specific to a project should be inside directories denoting status.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>“Status” and “project” directories are not distinguishable from the path alone, and the spec does not say whether a ticket’s status is the first segment or the full directory chain. That affects listing, moving, and validation.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>State that the first path segment beneath the board is always the lifecycle status, and deeper segments are local organization (project, area, or finer status) defined by the board owner. A ticket’s lifecycle status is determined only by that first segment and cannot be overridden by frontmatter.</p>
+      <p>Add one example showing both layers, such as <code>open/project-x/03-task.md</code> and <code>closed/project-x/03-task.md</code>.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> preserves the existing flexibility while making status unambiguous.</p>
+  </article>
+
+  <article class="suggestion" id="S05" data-suggestion-id="S05">
+    <div class="suggestion-head">
+      <span class="id-badge">S05</span>
+      <h2>Define ticket ordering precisely</h2>
+    </div>
+    <p class="where">Tickets → order</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“Ticket order is determined by sorting the tickets by filename ascending.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>It is unclear whether ordering applies within a status, across the whole board, or across nested project directories. “Filename ascending” also leaves case sensitivity, locale, digit handling, and path tie-breaks unspecified.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>Specify that ordering applies <em>within each status directory</em>, using a deterministic, locale-independent, case-sensitive comparison of the full filename. Compare the numeric prefix as text, not as an integer, so <code>02-…</code> sorts before <code>10-…</code> and <code>10-…</code> before <code>9-…</code>.</p>
+      <p>For full-board listings, say that status grouping takes precedence and that the order between status directories is a presentation choice the tool should document. This avoids inventing a global priority order the spec does not currently define.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> makes “priority” reproducible across languages and tools.</p>
+  </article>
+
+  <article class="suggestion" id="S06" data-suggestion-id="S06">
+    <div class="suggestion-head">
+      <span class="id-badge">S06</span>
+      <h2>Explain the priority prefix</h2>
+    </div>
+    <p class="where">Tickets → naming convention</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A ticket may be named anything. By convention, the name format is a two-digit number representing ticket priority … followed by an all-lowercase name …”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>The spec never says whether <code>00</code> or <code>99</code> means highest priority, whether numbers above 99 are allowed, or whether a ticket without the prefix is still valid. Readers can infer opposite meanings from “priority” and “ascending”.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>State that the leading number is a sort key, not a magnitude: smaller numbers sort first, so <code>00</code> is highest priority and <code>99</code> is lowest within the two-digit convention. Multiple tickets may share a number; the rest of the filename breaks the tie.</p>
+      <p>Reiterate that the prefix is convention only. A ticket without a numeric prefix remains valid and sorts by its full filename; tickets with other digit counts are nonconforming but not invalid.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> removes the most likely source of misinterpretation while keeping naming optional.</p>
+  </article>
+
+  <article class="suggestion" id="S07" data-suggestion-id="S07">
+    <div class="suggestion-head">
+      <span class="id-badge">S07</span>
+      <h2>Limit frontmatter to descriptive metadata</h2>
+    </div>
+    <p class="where">Tickets → frontmatter</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A ticket may contain a frontmatter YAML header with arbitrary relevant information. It should <em>not</em> contain extraneous or frivolous information … A ticket without frontmatter is a valid ticket.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>The spec says frontmatter is arbitrary but does not say whether it may duplicate or override structural facts such as status, priority, or path, nor what exactly delimits it. Different parsers will disagree about malformed or unclosed headers.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>Describe frontmatter as optional, descriptive metadata. When present, it is the first block whose opening and closing delimiters are lines containing exactly <code>---</code>. An unclosed opening <code>---</code> is body text, not frontmatter.</p>
+      <p>State that frontmatter is not authoritative for status, priority, filename, or ticket identity; those are derived from the path. Keys that duplicate structural facts are redundant, not overrides.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> prevents “the file says closed but the directory says open” ambiguity.</p>
+  </article>
+
+  <article class="suggestion" id="S08" data-suggestion-id="S08">
+    <div class="suggestion-head">
+      <span class="id-badge">S08</span>
+      <h2>Make lifecycle transitions explicit</h2>
+    </div>
+    <p class="where">Lifecycle</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A ticket is created in <code>open</code> or <code>backlog</code>. It is moved to <code>in_progress</code> while it is being worked on. A ticket is moved to <code>closed</code> when it is finished.”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>This describes a happy path but not whether transitions may be skipped, whether closed tickets may be reopened, or what “finished” means. The status of a ticket is also implied by directory placement but never stated as the sole source of truth.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>State that the four directories are the four lifecycle states and that moving the file is the transition. New tickets MUST begin in <code>open</code> or <code>backlog</code>; a ticket is “finished” when a person decides its content no longer needs active work.</p>
+      <p>Allow direct moves between any states (for example, <code>backlog</code> straight to <code>closed</code>) and say that reopening a closed ticket means moving it back to <code>open</code> or <code>backlog</code>. That is a local decision, not a separate lifecycle state.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> resolves skipped transitions and reopen behavior without adding new states or commands.</p>
+  </article>
+
+  <article class="suggestion" id="S09" data-suggestion-id="S09">
+    <div class="suggestion-head">
+      <span class="id-badge">S09</span>
+      <h2>Frame the body-length rule as guidance</h2>
+    </div>
+    <p class="where">Tickets → body</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“The body of a ticket should be short, ideally no more then ~250 characters (3 lines long at 80 characters a line).”</blockquote>
+
+    <h3>Why clarify</h3>
+    <p>The arithmetic is approximate (three 80-character lines is 240, not 250), “should” is undefined, and it is unclear whether the count includes frontmatter, whitespace, or Markdown syntax. Implementations may reject tickets the spec considers acceptable.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>State that the guidance measures the body only, excluding frontmatter, and that ~250 characters is a readability target, not a validity rule. There is no hard maximum; tools may warn but must not reject a longer ticket solely for length.</p>
+      <p>Keep the rationale: short tickets are easier to scan, diff, and review in a file tree. Markdown formatting is allowed as long as the ticket remains understandable as plain text.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> prevents valid tickets from being treated as malformed and clarifies what is being measured.</p>
+  </article>
+
+  <article class="suggestion" id="S10" data-suggestion-id="S10">
+    <div class="suggestion-head">
+      <span class="id-badge">S10</span>
+      <h2>Reconcile Git and archival options</h2>
+    </div>
+    <p class="where">Git</p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">“A fit/ directory may be included in .gitignore. In this case, it is recommend that the time of completion is recorded, though it is not mandatory.”</blockquote>
+    <p class="where">Also: “A ticket that has just been closed should not contain the git commit hash of the commit that closed it.”</p>
+
+    <h3>Why clarify</h3>
+    <p>The two Git paragraphs describe different modes but do not say how they relate. The prohibition on a closing commit hash is unexplained, and “recommend” is weaker than the surrounding SHOULD-style guidance.</p>
+
+    <h3>Suggested clarification</h3>
+    <div class="proposal">
+      <p>Make the two supported modes explicit: a <strong>tracked board</strong>, where ticket moves are committed alongside the work, and an <strong>ignored board</strong>, where the board is local. In the ignored mode, record a completion timestamp when closing, because Git will not preserve that event.</p>
+      <p>Explain that a closing commit hash is unnecessary and usually unknowable at the moment the ticket is moved; if a team wants traceability, a timestamp or an informational reference is enough. Archiving (zipping <code>closed</code> or compiling it into one file) is an optional external operation, not a board state.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> turns two loosely connected notes into one coherent, optional Git story without changing the board layout.</p>
+  </article>
+
+  <footer>
+    <p>Reference IDs: <code>S01</code>–<code>S10</code>. Generated for discussion; the FIT specification itself remains the source of truth.</p>
+  </footer>
+</main>
+</body>
+</html>

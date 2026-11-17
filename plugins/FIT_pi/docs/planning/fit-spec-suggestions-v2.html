@@ -1,0 +1,685 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIT Spec (Basic/Strict): Ten Fixes Before It Hardens</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0d1117;
+    --paper: #161b22;
+    --ink: #e6edf5;
+    --muted: #9aa8ba;
+    --line: #2b3440;
+    --accent: #63b3ff;
+    --accent-soft: #122a44;
+    --warn-soft: #2b2214;
+    --warn-line: #9b7430;
+    --good-soft: #14261b;
+    --good-line: #3f7f57;
+    --code-bg: #232c38;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  header.hero {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 30px 32px;
+    margin-bottom: 26px;
+  }
+  h1 {
+    margin: 0 0 8px;
+    font-size: clamp(1.6rem, 3vw, 2.2rem);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .subtitle {
+    margin: 0;
+    color: var(--muted);
+    font-size: 1.05rem;
+  }
+  .meta {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pill {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.76rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+  .pill.warn { background: var(--warn-soft); color: #e7d3a2; }
+  .pill.good { background: var(--good-soft); color: #9ad1b0; }
+  .note {
+    background: var(--good-soft);
+    border: 1px solid var(--good-line);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin: 22px 0;
+  }
+  .note strong { display: block; margin-bottom: 4px; }
+  .note p { margin: 0 0 8px; }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn {
+    background: var(--warn-soft);
+    border-color: var(--warn-line);
+  }
+  nav.toc {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 26px;
+  }
+  nav.toc h2 {
+    margin: 0 0 12px;
+    font-size: 0.82rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  nav.toc ol {
+    margin: 0;
+    padding-left: 1.3rem;
+  }
+  nav.toc li { margin: 7px 0; }
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+  }
+  nav.toc a:hover { border-bottom-color: var(--accent); color: var(--accent); }
+  nav.toc .ref {
+    display: inline-block;
+    min-width: 2.7rem;
+    color: var(--accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  nav.toc .kind {
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  article.suggestion, article.appendix {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px 30px 28px;
+    margin: 22px 0;
+    scroll-margin-top: 20px;
+  }
+  article.suggestion:target {
+    outline: 3px solid var(--accent);
+    outline-offset: 3px;
+  }
+  .suggestion-head {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+  }
+  .id-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #06111f;
+    border-radius: 7px;
+    padding: 3px 9px;
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  article.suggestion h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .where {
+    color: var(--muted);
+    font-size: 0.88rem;
+    margin: 0 0 18px;
+  }
+  h3 {
+    margin: 22px 0 8px;
+    font-size: 0.78rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  blockquote.current {
+    margin: 0;
+    padding: 12px 16px;
+    background: var(--warn-soft);
+    border-left: 3px solid var(--warn-line);
+    border-radius: 0 8px 8px 0;
+    color: #e7d3a2;
+    font-size: 0.94rem;
+  }
+  blockquote.current p { margin: 0 0 8px; }
+  blockquote.current p:last-child { margin-bottom: 0; }
+  .proposal {
+    margin: 0;
+    padding: 14px 16px;
+    background: var(--good-soft);
+    border-left: 3px solid var(--good-line);
+    border-radius: 0 8px 8px 0;
+    font-size: 0.95rem;
+  }
+  .proposal p { margin: 0 0 10px; }
+  .proposal p:last-child { margin-bottom: 0; }
+  .proposal ul { margin: 6px 0 10px; padding-left: 1.25rem; }
+  .proposal li { margin: 4px 0; }
+  code {
+    background: var(--code-bg);
+    border-radius: 4px;
+    padding: 0.1em 0.32em;
+    font: 0.88em/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  ul.why { margin: 0; padding-left: 1.25rem; font-size: 0.95rem; }
+  ul.why li { margin: 6px 0; }
+  .effect {
+    margin: 18px 0 0;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line);
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+  .effect strong { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 0; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+  td code { white-space: nowrap; }
+  footer {
+    margin-top: 34px;
+    color: var(--muted);
+    font-size: 0.86rem;
+    text-align: center;
+  }
+  a { color: var(--accent); }
+  @media (max-width: 640px) {
+    main { padding: 20px 14px 60px; }
+    article.suggestion, article.appendix { padding: 20px 18px 22px; }
+    header.hero { padding: 22px 18px; }
+  }
+  @media print {
+    :root {
+      color-scheme: light;
+      --bg: #fff;
+      --paper: #fff;
+      --ink: #1d2430;
+      --muted: #5d6978;
+      --line: #bbb;
+      --accent: #0b5cad;
+      --accent-soft: #e8f1fb;
+      --warn-soft: #fff6e5;
+      --warn-line: #c79a3f;
+      --good-soft: #eaf7ef;
+      --good-line: #6aa784;
+      --code-bg: #eef1f5;
+    }
+    body { background: #fff; }
+    main { max-width: none; padding: 0; }
+    article.suggestion, article.appendix, header.hero, nav.toc { break-inside: avoid; }
+    nav.toc { break-after: page; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <header class="hero">
+    <h1>FIT Spec (Basic/Strict): Ten Fixes Before It Hardens</h1>
+    <p class="subtitle">Thirty-nine lines now describe two systems, one of which is declared optional and unenforceable. These are the ten places where that costs a reader or a tool the most.</p>
+    <div class="meta">
+      <span class="pill">10 suggestions</span>
+      <span class="pill">Reference IDs S11–S20</span>
+      <span class="pill">Spec text only</span>
+      <span class="pill warn">Upstream blob b5cf342</span>
+    </div>
+  </header>
+
+  <div class="note warn">
+    <strong>What this reviews</strong>
+    <p>The current upstream <code>FIT_SPEC.md</code> at
+    <code>HeadEmptyNoNotes/FIT</code>, blob <code>b5cf3422</code>
+    (SHA-256 <code>a7c6fd83…</code>). That revision introduced the
+    <strong>Basic / Strict</strong> split; it is not the text reviewed by
+    <code>fit-spec-suggestions.html</code> (IDs <code>S01–S10</code>), which
+    covered the older single-section “Full Fit Spec”.</p>
+    <p>“Current text” is quoted verbatim from that blob. “Suggested wording”
+    is proposal text, not an applied patch.</p>
+  </div>
+
+  <nav class="toc" aria-label="Table of contents">
+    <h2>Suggestions, most consequential first</h2>
+    <ol>
+      <li><a href="#S11"><span class="ref">S11</span> Give “Strict” a definition that can fail</a> <span class="kind">— conformance</span></li>
+      <li><a href="#S12"><span class="ref">S12</span> Make Basic an actual subset of Strict</a> <span class="kind">— structure</span></li>
+      <li><a href="#S13"><span class="ref">S13</span> Bound the single-<code>in_progress</code> rule</a> <span class="kind">— lifecycle</span></li>
+      <li><a href="#S14"><span class="ref">S14</span> Define a ticket, its identity, and nested statuses</a> <span class="kind">— scope</span></li>
+      <li><a href="#S15"><span class="ref">S15</span> Finish the name template</a> <span class="kind">— naming</span></li>
+      <li><a href="#S16"><span class="ref">S16</span> Give ordering a scope and a collation</a> <span class="kind">— ordering</span></li>
+      <li><a href="#S17"><span class="ref">S17</span> Define archiving without inventing a fifth status</a> <span class="kind">— archival</span></li>
+      <li><a href="#S18"><span class="ref">S18</span> Enumerate the Git modes and their closing commits</a> <span class="kind">— Git</span></li>
+      <li><a href="#S19"><span class="ref">S19</span> Make frontmatter descriptive, delimited, and non-authoritative</a> <span class="kind">— frontmatter</span></li>
+      <li><a href="#S20"><span class="ref">S20</span> Give the first line and body a testable shape</a> <span class="kind">— content</span></li>
+    </ol>
+  </nav>
+
+  <article class="suggestion" id="S11" data-suggestion-id="S11">
+    <div class="suggestion-head">
+      <span class="id-badge">S11</span>
+      <h2>Give “Strict” a definition that can fail</h2>
+    </div>
+    <p class="where">Strict → opening paragraph · extends v1 <a href="fit-spec-suggestions.html#S02">S02</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“The strict FIT system is the basic system, with restrictions and specific rules. The system is intended to make the FIT system more suited to using collaboratively, automating, and checking programatically. It is entirely optional. Any variation of this spec is valid, as long as all contributors/coolaborates agree.”</p>
+      <p>“That is the extent of the basic system.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li>“Any variation of this spec is valid” is a global escape hatch. A board with two tickets in <code>in_progress</code>, no <code>open</code> directory, and a <code>.txt</code> ticket is still valid if the collaborators agree — so a checker has nothing to reject.</li>
+      <li>“Entirely optional” describes the choice to <em>use</em> Strict, but the text never says how a reader or tool knows a board <em>claims</em> Strict. There is no marker, revision number, or declaration.</li>
+      <li>The document never says what a violation means: invalid board, warning, or style note. “Should”, “may”, “must”, and bare declaratives sit side by side with no ranking.</li>
+      <li>The closing sentence of Basic (“That is the extent…”) reads as a guarantee that nothing further is required, which the next section immediately contradicts.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Replace the paragraph with a conformance block. Proposed text:</p>
+      <p>“A <strong>basic-compliant</strong> board is a directory containing the four status directories, with Markdown tickets inside them. Basic-compliant boards may vary freely; the rules below are the only ones a checker may rely on.</p>
+      <p>A <strong>strict-compliant</strong> board is a basic-compliant board that also satisfies every rule in this section. Using the strict system is optional, but a board that claims it is bound by it: each rule is either <em>required</em> (violations make the board noncompliant) or <em>recommended</em> (violations are reported as warnings). Nothing outside this section is required, and behaviour not mentioned here is allowed.</p>
+      <p>Strict rules are versioned by this document; a tool that validates them should state the revision it implements.”</p>
+      <p>The superseded sentence becomes: “Basic boards need agree on nothing beyond this paragraph; the strict rules exist so that collaborators and tools can agree without negotiation.”</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> turns “strict” from a mood into a verifiable property, without forcing anyone to adopt it.</p>
+  </article>
+
+  <article class="suggestion" id="S12" data-suggestion-id="S12">
+    <div class="suggestion-head">
+      <span class="id-badge">S12</span>
+      <h2>Make Basic an actual subset of Strict</h2>
+    </div>
+    <p class="where">Basic and Strict → board and ticket sections · extends v1 <a href="fit-spec-suggestions.html#S01">S01</a>, <a href="fit-spec-suggestions.html#S04">S04</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Structure: Somewhere, for example in a directory called "fit" in a repo, are four directories "open", "in_progress", "backlog", and "closed"”</p>
+      <p>“Tickets: Tickets are markdown files in one of the four afformentioned directories, or a subdirectory inside of one. Ticket order is determined by sorting the filenames ascending. Metadata is frontmatter, if needed.”</p>
+      <p>“A fit board is a directory called "fit" consisting of the following child directories (listed in sort order): <code>- in_progress</code> <code>- open</code> <code>- backlog</code> <code>- closed</code>”</p>
+      <p>“By convention, the "fit" directory lives at the root of a repository using FIT.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li>The two sections list the same four directories in different orders, and only Strict calls its list a sort order. A reader can reasonably conclude Basic prescribes a different order, or that order does not matter at all.</li>
+      <li>Basic permits the board directory to be named anything (“somewhere, for example… fit”); Strict says the board <em>is</em> a directory called <code>fit</code>, then one sentence later demotes the name and location to convention. Is the name required or not?</li>
+      <li>Strict repeats the ticket-definition and ordering sentences from Basic almost verbatim. Because they are presented as strict rules rather than restatements, they have already drifted (directory order, capitalization of “markdown”), and a future edit will drift them further.</li>
+      <li>Nothing says the relationship explicitly: strict-compliant implies basic-compliant, and the reverse does not hold. Without that, “strict is basic with restrictions” is only an assertion in a subtitle.</li>
+      <li>Basic's two paragraph-labels (“Structure:”, “Tickets:”) have no sentence punctuation and are not usable as citations, which makes it hard to say which Basic rule is being violated.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Split the document into shared definitions plus two conformance profiles:</p>
+      <ul>
+        <li><strong>Terms</strong> (used by both): status directories, ticket file, ticket identity, ordering, and frontmatter are defined once. Basic and Strict then reference them rather than restating them.</li>
+        <li><strong>Basic</strong>: “A basic board has the four status directories under one directory (any name or location) and Markdown tickets beneath them. Ticket order is the ascending sort of filenames within a status directory.”</li>
+        <li><strong>Strict</strong>: “A strict board is a basic board that additionally names the board directory <code>fit</code>, follows the name template, and obeys the lifecycle and Git rules below. The location of <code>fit</code> at the repository root is a convention, not a requirement.”</li>
+      </ul>
+      <p>State once, in bold: “Every strict-compliant board is basic-compliant. The converse does not hold.” Then delete the duplicated ticket/ordering sentences from Strict, and align both directory lists to the same order.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one definition per concept, no drift, and the Basic/Strict relationship becomes a testable implication instead of a subtitle.</p>
+  </article>
+
+  <article class="suggestion" id="S13" data-suggestion-id="S13">
+    <div class="suggestion-head">
+      <span class="id-badge">S13</span>
+      <h2>Bound the single-<code>in_progress</code> rule</h2>
+    </div>
+    <p class="where">Strict → Lifecycle · extends v1 <a href="fit-spec-suggestions.html#S08">S08</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket may only be moved to "in_progress" if there are no tickets in "in_progress". If multiple tickets are in "in_progress", those tickets should be moved to other statuses until only one ticket remains in "in_progress". Git branches are the prefered way of handling the case where multiple tickets are being worked on simultanously.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>No scope.</strong> Strict allows subdirectories with “more granular statuses”. Does <code>in_progress/blocked/03-x.md</code> count as a ticket “in in_progress”? Does “tickets in in_progress” mean directly inside it, or anywhere below it?</li>
+      <li><strong>No resolution.</strong> When several are present, <em>which</em> one is allowed to stay? The rule says others “should be moved” but never says by whom or where. Two collaborators following the rule literally deadlock.</li>
+      <li><strong>Branch ambiguity.</strong> A Git branch or worktree has its own board content. The “no tickets” condition is therefore true or false per checkout, not per repository — but the paragraph only mentions branches as an aside. A tool that checks the main checkout can report a violation that the branch rule permits.</li>
+      <li><strong>Self-contradiction.</strong> The paragraph forbids what it then recommends: parallel work on branches is presented as the way to have multiple tickets in progress, yet the headline rule forbids more than one in progress.</li>
+      <li><strong>Unclassifiable violation.</strong> “Should” is the only signal. Under Strict, is a board with two in-progress tickets invalid, warning-only, or fine?</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Replace with a scoped, required rule and a separate branch note:</p>
+      <p>“A board checkout has at most one ticket in <code>in_progress</code>. A ticket is in <code>in_progress</code> if it is anywhere beneath the <code>in_progress</code> directory, including nested status subdirectories.</p>
+      <p>The limit applies per working tree or branch, not per repository: branches may each have their own in-progress ticket, and a board on the main branch is not noncompliant because of a branch’s ticket.</p>
+      <p>Moving a ticket into <code>in_progress</code> while another is already there is a violation. The board becomes compliant again when one of them is moved out; choosing which is a local decision, and a checker reports the state rather than picking a winner. To work on several tickets at once, use separate branches or worktrees.”</p>
+      <p>Also state whether the initial state of a new board (zero tickets in progress) is the intended default — it is, so no exemption is needed.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one rule that a single checkout can check, with branches explicitly out of scope.</p>
+  </article>
+
+  <article class="suggestion" id="S14" data-suggestion-id="S14">
+    <div class="suggestion-head">
+      <span class="id-badge">S14</span>
+      <h2>Define a ticket, its identity, and nested statuses</h2>
+    </div>
+    <p class="where">Strict → Board, Tickets · extends v1 <a href="fit-spec-suggestions.html#S03">S03</a>, <a href="fit-spec-suggestions.html#S04">S04</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket is a markdown file within one of the aforementioned folders.”</p>
+      <p>“These directories may contain subdirectories. These subdirectories may be additional, more granular statuses, or directories specific to a particular overall ticket. If both are desired, directories specific to a project should be inside directories denoting status.”</p>
+      <p>“This specification document may live at the root of the board directory.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li>“Markdown file” does not settle <code>.markdown</code>, uppercase <code>.MD</code>, hidden files such as <code>.gitkeep</code> (needed to track empty status directories), symlinks, or attachments (screenshots, JSON fixtures) committed under a status directory. Each is either a ticket or not, and the text does not say.</li>
+      <li>The spec document is allowed at the board root, but nothing says it is not a ticket if someone places a <code>FIT_SPEC.md</code> inside a status directory. Under the current definition, it would be one.</li>
+      <li>Ticket identity is never stated. If identity is the path, renaming or moving changes it; if it is the frontmatter or the basename, duplicate basenames in <code>open/project-a/</code> and <code>open/project-b/</code> collide. Tools need the answer to address a ticket unambiguously.</li>
+      <li>“Status” and “project” subdirectories are indistinguishable from the path. Nothing says a ticket’s lifecycle status is the first segment under the board, so <code>in_progress/blocked/03-x.md</code> can be read as status <code>blocked</code> or as status <code>in_progress</code> within project <code>blocked</code>.</li>
+      <li>It never says the four status directories must exist even when empty, which is the first thing every checker tests.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Add a short definition block:</p>
+      <ul>
+        <li>“A <strong>ticket</strong> is a regular file whose name ends in lowercase <code>.md</code>, located at any depth beneath one of the four status directories, whose name does not begin with a dot. <code>.markdown</code>, <code>.MD</code>, dotfiles, and non-Markdown files are not tickets and are ignored by tools; a <code>FIT_SPEC.md</code> at the board root is not a ticket.”</li>
+        <li>“A ticket's <strong>identity</strong> is its path relative to the board root. Renaming or moving a ticket changes its identity. Duplicate basenames in different subdirectories are allowed because paths differ.”</li>
+        <li>“The <strong>status</strong> of a ticket is its first path segment beneath the board; deeper segments are local organization and never override status. Frontmatter never overrides status, priority, or identity.”</li>
+        <li>“The four status directories must exist, and may be empty. A status directory may contain nested subdirectories; a ticket may live directly in the status directory or in any of its subdirectories.”</li>
+      </ul>
+      <p>Then the existing subdirectory paragraph follows naturally, with its example: <code>open/project-x/03-task.md</code> has status <code>open</code> and project <code>project-x</code>.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> gives tools one discovery rule and one addressing rule, and makes “status” a path fact rather than an interpretation.</p>
+  </article>
+
+  <article class="suggestion" id="S15" data-suggestion-id="S15">
+    <div class="suggestion-head">
+      <span class="id-badge">S15</span>
+      <h2>Finish the name template</h2>
+    </div>
+    <p class="where">Strict → Tickets → naming · extends v1 <a href="fit-spec-suggestions.html#S06">S06</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket is named according to following template: {two-digit ticket priority (0 high)}-{dash-seperated-short-name}.md”</p>
+      <p>“A ticket name should be shorter then 80 characters.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“0 high” contradicts “two-digit”.</strong> Is the highest priority <code>0-</code> or <code>00-</code>? If the template is two digits, the example must be <code>00</code>; if <code>0</code> is legal, the template is not two-digit. Is <code>99</code> the lowest, and are <code>100</code> or <code>-1</code> allowed?</li>
+      <li><strong>No stated sort direction.</strong> “Priority (0 high)” plus “sorting ascending” implies smaller first, but a reader can equally read high numbers as high priority. Say it outright.</li>
+      <li><strong>No character set, and the old lowercase rule vanished.</strong> “dash-seperated-short-name” does not say lowercase, ASCII, or which characters are permitted. The previous draft required all-lowercase; dropping that silently permits <code>03-Fix Typo.md</code>.</li>
+      <li><strong>“80 characters” is unmeasured.</strong> Including <code>.md</code>? Including the path? The stem only? Tools that warn on 80-character stems and tools that warn on 80-character full names will disagree.</li>
+      <li><strong>No consequence.</strong> Strict says a ticket <em>is</em> named this way (required, in effect), but never says whether <code>fix-typo.md</code> is invalid, nonconforming-but-valid, or fine. Basic meanwhile allows any name, so the same file has two answers.</li>
+      <li>“according to following template” is missing an article, and the template braces are not explained as placeholders.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“A strict ticket is named <code>NN-name.md</code>, where:</p>
+      <ul>
+        <li><code>NN</code> is exactly two digits, <code>00</code> through <code>99</code>. <code>00</code> sorts first and means highest priority; <code>99</code> sorts last. Several tickets may share a number; the remaining name breaks the tie.</li>
+        <li><code>name</code> is ASCII lowercase letters, digits, and hyphen-minus, with words separated by single hyphens.</li>
+        <li>The name excludes the extension from the limit and is at most 80 characters including <code>NN-</code> and <code>.md</code>; the path and parent directories do not count.”</li>
+      </ul>
+      <p>Then add: “The prefix is a sort key, not a magnitude. A ticket whose filename does not match this template is <em>nonconforming</em> but still a valid ticket; it sorts by its full filename. Basic boards have no naming requirement.”</p>
+      <p>If 80 should be measured on the stem only (as tooling often does), say so explicitly and use one number everywhere.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> one reproducible name format, one limit, and an explicit gap between “nonconforming” and “invalid”.</p>
+  </article>
+
+  <article class="suggestion" id="S16" data-suggestion-id="S16">
+    <div class="suggestion-head">
+      <span class="id-badge">S16</span>
+      <h2>Give ordering a scope and a collation</h2>
+    </div>
+    <p class="where">Basic and Strict → ticket order · extends v1 <a href="fit-spec-suggestions.html#S05">S05</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Ticket order is determined by sorting the filenames ascending.” <em>(Basic)</em></p>
+      <p>“Ticket order is determined by sorting the tickets by filename ascending.” <em>(Strict, restated)</em></p>
+      <p>“… child directories (listed in sort order): <code>- in_progress</code> <code>- open</code> <code>- backlog</code> <code>- closed</code>”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>Scope.</strong> Within a status directory? Across nested project directories? Across the whole board? For nested tickets, is the comparison against the basename or the relative path?</li>
+      <li><strong>Collation.</strong> “Ascending” does not define case sensitivity, locale, Unicode normalization, or whether <code>_</code>, <code>-</code>, and digits compare as bytes or under a locale. “Ascending” in Swedish and in C produce different orders.</li>
+      <li><strong>Digits.</strong> The naming template deliberately makes <code>02</code>, <code>10</code>, and <code>99</code> meaningful, but text sort and numeric sort differ as soon as a name has one digit (<code>9-…</code> sorts after <code>10-…</code> as text). The spec relies on the text reading but never says so.</li>
+      <li><strong>Ties.</strong> Two <code>00-fix-typo.md</code> files in <code>open/a/</code> and <code>open/b/</code> compare equal by basename. Nothing defines a path tie-break.</li>
+      <li><strong>Status order is only implied.</strong> Strict's list says “(listed in sort order)”, but Basic's identical set appears in a different order, and nothing says how a whole-board listing interleaves statuses. A tool cannot reproduce the spec's order from the text.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“Tickets are ordered within each status directory by comparing their board-relative paths as sequences of Unicode code points, case-sensitively and without locale collation. Digits compare as text, so <code>02-…</code> precedes <code>10-…</code>, which precedes <code>9-…</code> if such a name exists. When two tickets share a basename, the full relative path breaks the tie.</p>
+      <p>A whole-board listing groups tickets by status first, in this order: <code>in_progress</code>, <code>open</code>, <code>backlog</code>, <code>closed</code>; within a group, the path order above applies. A tool may offer other groupings, but its default must match this order.”</p>
+      <p>Then align Basic's directory list with this order (or label Basic's list explicitly as “a set, not an order”) so the two lists stop disagreeing.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> any two implementations sort identically, and the status order becomes a rule instead of an aside.</p>
+  </article>
+
+  <article class="suggestion" id="S17" data-suggestion-id="S17">
+    <div class="suggestion-head">
+      <span class="id-badge">S17</span>
+      <h2>Define archiving without inventing a fifth status</h2>
+    </div>
+    <p class="where">Strict → Lifecycle · extends v1 <a href="fit-spec-suggestions.html#S10">S10</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“Tickets in "closed" may be archived by being moved out of the "closed" directory.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>Destination is undefined.</strong> Moved out to where? Outside the board (then it is no longer a ticket), into another status directory (then it is not archived, merely mislabelled), or into <code>closed/archive/</code>? Under Strict's own definition, a Markdown file in <code>closed/archive/</code> is still a ticket with status <code>closed</code> — so that is not archiving at all.</li>
+      <li><strong>It collides with the ticket definition.</strong> The whole point of archiving is that a ticket stops appearing in the board, but the only in-board place to put it is still inside a status directory, so every in-board move fails to archive anything.</li>
+      <li><strong>Irreversible by omission.</strong> The sentence says “may”, but moving files out of the board is destructive for tooling and history; nothing says whether deleting a ticket is allowed, whether an archive must preserve paths, or whether a board with a missing <code>closed</code> directory remains valid.</li>
+      <li><strong>It replaces a clearer rule.</strong> The previous spec named concrete archive operations (zip <code>closed</code>, or compile tickets into one Markdown file). Those disappeared, and the replacement is less precise than what it replaced.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“Archiving is an operation on the board's <em>history</em>, not a lifecycle status. A board has exactly four statuses; a ticket in <code>closed</code> is complete whether or not it is later archived.</p>
+      <p>To archive, move the contents of <code>closed</code> out of the board — for example into a sibling directory, a zip file, or a single compiled Markdown file — and leave the <code>closed</code> directory in place. Archived files are no longer tickets under this spec. Deleting closed tickets instead of archiving them is allowed but loses their history.</p>
+      <p>An in-board subdirectory such as <code>closed/archive/</code> does <em>not</em> archive anything: those files remain closed tickets and are still listed. If a board wants an in-board grouping, treat it as project organization, not archival.”</p>
+      <p>Keep archiving optional and exclude it from validity: an empty (but present) <code>closed</code> directory is compliant.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> removes a rule that cannot be satisfied as written, and restores the concrete archive story the previous revision had.</p>
+  </article>
+
+  <article class="suggestion" id="S18" data-suggestion-id="S18">
+    <div class="suggestion-head">
+      <span class="id-badge">S18</span>
+      <h2>Enumerate the Git modes and their closing commits</h2>
+    </div>
+    <p class="where">Strict → Git · extends v1 <a href="fit-spec-suggestions.html#S10">S10</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A /fit directory may be included in .gitignore.”</p>
+      <p>“If a FIT directory is hidden via .gitignore, it may be its own git repository or a branch of the repository into which it is currently embedded. If it is tracked by a branch of the parent repository, the branch should be named "fit"”</p>
+      <p>“When a ticket is closed:”</p>
+      <p>“If the ticket is tracked by the same repository+branch that is tracking the work that was done, it should be included in the commit that finishes the work.”</p>
+      <p>“If the ticket is tracked by a different repository/branch, it may record the git commit that resolved the work, and the date that the work was completed, in the ticket's frontmatter. Neither are required.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>Modes are never enumerated.</strong> At least four are possible: tracked inline on the work branch; ignored and purely local; ignored but checked out as a worktree on a <code>fit</code> branch; a separate repository. The text describes them piecemeal and never says which is the default or whether more than one may coexist.</li>
+      <li><strong>“Hidden” and “tracked” are opposites.</strong> A worktree on a <code>fit</code> branch is normally <em>excluded</em> from the parent repository's tracking and listed in its <code>.gitignore</code>, yet the branch itself tracks the files. The paragraph treats “hidden via .gitignore” and “tracked by a branch of the parent” as disjoint when they are the same setup.</li>
+      <li><strong>“When a ticket is closed:” is a dangling heading.</strong> It introduces no list and its two following paragraphs are separate conditional rules, not items under it.</li>
+      <li><strong>Sequencing is missing.</strong> Moving a ticket to <code>closed</code> changes the working tree. In same-branch mode, is the move part of the work commit, or a separate commit? In worktree mode, the close must be committed on the <code>fit</code> branch — a rule the text never states, even though the following paragraph depends on it.</li>
+      <li><strong>Metadata keys are unnamed.</strong> “the git commit” and “the date” have no field names, so two tools will write <code>commit</code>/<code>completed</code> and <code>close_commit</code>/<code>finished</code> respectively.</li>
+      <li><strong>Requirements are unclear.</strong> “Should be included” and “may record” are the only signals; under Strict, a tracked board that closes a ticket in a separate commit is neither obviously compliant nor obviously violating.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>Replace the section with a short taxonomy and one rule per mode:</p>
+      <ul>
+        <li><strong>Inline tracked (default).</strong> The board is part of the repository. Closing a ticket changes <code>open/…</code> to <code>closed/…</code>, and that move is committed together with the work that completes it.</li>
+        <li><strong>Local-only.</strong> The board is in the repository's <code>.gitignore</code> and is not versioned. No commit rule applies; recording <code>completed</code> in frontmatter is recommended so the closure survives.</li>
+        <li><strong>Worktree on a <code>fit</code> branch.</strong> The board is ignored in the parent repository and checked out as a linked worktree on a branch named <code>fit</code>. Closing a ticket is committed on that branch, separately from the work branch.</li>
+        <li><strong>Separate repository.</strong> The board is its own repository. Closing is committed there; the ticket may record the resolving commit and completion date.</li>
+      </ul>
+      <p>Then: “In worktree and separate-repository modes, a closed ticket may carry <code>commit</code> and <code>completed</code> in frontmatter. Neither is required. In inline mode neither is needed, because the commit history already contains the move.”</p>
+      <p>Fix the prose: “A <code>fit/</code> directory (a path relative to the repository root) may be listed in <code>.gitignore</code>” — the leading slash is gitignore syntax, not part of the name.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> four concrete setups, each with an unambiguous closing procedure and shared metadata names.</p>
+  </article>
+
+  <article class="suggestion" id="S19" data-suggestion-id="S19">
+    <div class="suggestion-head">
+      <span class="id-badge">S19</span>
+      <h2>Make frontmatter descriptive, delimited, and non-authoritative</h2>
+    </div>
+    <p class="where">Strict → Tickets → frontmatter · extends v1 <a href="fit-spec-suggestions.html#S07">S07</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“A ticket may contain a frontmatter YAML header with arbitrary relevant information. Any metadata must be immediately relevant to the reader of the ticket. A ticket without frontmatter is still a valid ticket.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>No delimiters.</strong> A YAML header needs a start and end. Different parsers treat an unclosed opening <code>---</code> as a header, as body, or as an error; the choose-your-own-answer version breaks round-tripping and writing tools.</li>
+      <li><strong>“Arbitrary” versus “must”.</strong> The first sentence allows any relevant key; the second imposes a hard relevance requirement with no test. A checker cannot decide whether <code>mood: tired</code> is “immediately relevant”.</li>
+      <li><strong>No authority rule.</strong> Nothing says frontmatter cannot declare <code>status: closed</code> inside <code>open/</code>, or <code>priority: 00</code> that disagrees with the filename. Under the current text both are “arbitrary relevant information”, and a reader has two contradictory sources of truth.</li>
+      <li><strong>Interacts badly with “The first line”.</strong> If frontmatter is present, is the “first line of the ticket” the first line of YAML, the first line after it, or the first non-blank body line?</li>
+      <li><strong>No field names.</strong> The Git section already relies on recording a commit and a date; without reserved names, every implementation invents its own.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“A ticket may begin with an optional YAML frontmatter block. The block starts on the first line of the file with a line containing exactly <code>---</code> and ends at the next line containing exactly <code>---</code>. If no closing delimiter is found, there is no frontmatter and the file starts with body text.”</p>
+      <p>“Frontmatter is descriptive metadata. It is never authoritative for status, priority, filename, or identity: those come from the path. Keys that duplicate those facts are redundant, not overrides, and a checker may warn about them. Frontmatter is intended for a reader of the ticket; keep it short and relevant.”</p>
+      <p>Reserve two optional keys for the Git rules: <code>completed</code> (date) and <code>commit</code> (resolving commit). Frontmatter does not affect ticket ordering or the first-line rule below.</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> deterministic parsing, one source of truth for structure, and interoperable completion metadata.</p>
+  </article>
+
+  <article class="suggestion" id="S20" data-suggestion-id="S20">
+    <div class="suggestion-head">
+      <span class="id-badge">S20</span>
+      <h2>Give the first line and body a testable shape</h2>
+    </div>
+    <p class="where">Strict → Tickets → body · extends v1 <a href="fit-spec-suggestions.html#S09">S09</a></p>
+
+    <h3>Current text</h3>
+    <blockquote class="current">
+      <p>“The first line of a ticket should be one to three sentences describing the issue.”</p>
+      <p>“Any additional sections must be preceeded by a sub-heading, and each additional section should have a single purpose and be kept short.”</p>
+    </blockquote>
+
+    <h3>Why it breaks</h3>
+    <ul class="why">
+      <li><strong>“First line” is ambiguous with frontmatter</strong> and with wrapped prose. A 140-character sentence is one line on one renderer and two on another; “one to three sentences” and “first line” cannot both be requirements.</li>
+      <li><strong>“Describing the issue” narrows the medium.</strong> Tickets also record tasks, questions, ideas, and decisions. Calling all of them “the issue” is a small but persistent mismatch.</li>
+      <li><strong>The two clauses disagree.</strong> “Additional sections must be preceded by a sub-heading” is required; “each additional section should … be kept short” is a soft recommendation. What is the unit of “additional”? Everything after the first sentence, or everything after the first heading?</li>
+      <li><strong>Edge cases are unaddressed.</strong> A one-line ticket with no sections, blank lines before the first heading, nested headings, a heading as the very first body line, and a ticket with frontmatter and no body at all are all unspecified.</li>
+      <li><strong>Body length disappeared.</strong> The previous revision's “~250 characters” guidance was the only measurable content target. Strict now has none, so a checker has nothing to warn on — even though the splitting intent was to make checking possible.</li>
+    </ul>
+
+    <h3>Suggested wording</h3>
+    <div class="proposal">
+      <p>“The <strong>body</strong> is everything after the frontmatter block. Its first paragraph should be one to three sentences stating the task, question, or issue. A body of one paragraph with no heading is valid.</p>
+      <p>If the body has more than one section, every section after the first paragraph must begin with a Markdown heading of level 2 or deeper, preceded by a blank line. Each section should cover one purpose and stay short.</p>
+      <p>As guidance rather than a validity rule, aim for a body of roughly 250 characters (three 80-character lines). There is no maximum; tools may warn about longer bodies but must not reject them for length. Frontmatter does not count toward the target.”</p>
+    </div>
+    <p class="effect"><strong>Effect:</strong> removes the line/sentence contradiction, covers one-line tickets, and restores a measurable target that was lost in the split.</p>
+  </article>
+
+  <article class="appendix" id="appendix">
+    <div class="suggestion-head">
+      <span class="id-badge">A</span>
+      <h2>Appendix: editorial pass and v1 status</h2>
+    </div>
+
+    <h3>Typos and wording to fix in the same edit</h3>
+    <table>
+      <thead>
+        <tr><th>Current</th><th>Corrected</th><th>Where</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>afformentioned</code></td><td><code>aforementioned</code></td><td>Basic</td></tr>
+        <tr><td><code>coolaborates</code></td><td><code>collaborators</code></td><td>Strict → opening</td></tr>
+        <tr><td><code>programatically</code></td><td><code>programmatically</code></td><td>Strict → opening</td></tr>
+        <tr><td><code>seperated</code></td><td><code>separated</code></td><td>Strict → naming template</td></tr>
+        <tr><td><code>preceeded</code></td><td><code>preceded</code></td><td>Strict → sections rule</td></tr>
+        <tr><td><code>prefered</code></td><td><code>preferred</code></td><td>Strict → Lifecycle</td></tr>
+        <tr><td><code>simultanously</code></td><td><code>simultaneously</code></td><td>Strict → Lifecycle</td></tr>
+        <tr><td><code>shorter then 80</code></td><td><code>shorter than 80</code></td><td>Strict → name length</td></tr>
+        <tr><td><code>according to following template</code></td><td><code>according to the following template</code></td><td>Strict → naming</td></tr>
+        <tr><td><code>markdown</code> / <code>git</code> / <code>FIT</code> mixed</td><td>Pick one casing per term</td><td>Whole document</td></tr>
+      </tbody>
+    </table>
+
+    <h3>How the earlier review maps onto this one</h3>
+    <table>
+      <thead>
+        <tr><th>v1</th><th>Topic</th><th>Upstream status</th><th>Here</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>S01</td><td>Status directory spelling</td><td>Addressed (underscore form used throughout)</td><td>—</td></tr>
+        <tr><td>S02</td><td>Normative language</td><td>Not addressed; weakened by “any variation is valid”</td><td>S11</td></tr>
+        <tr><td>S03</td><td>Ticket file definition</td><td>Not addressed</td><td>S14</td></tr>
+        <tr><td>S04</td><td>Status vs project directories</td><td>Partly; first-segment rule still absent</td><td>S14</td></tr>
+        <tr><td>S05</td><td>Ordering</td><td>Not addressed</td><td>S16</td></tr>
+        <tr><td>S06</td><td>Priority prefix</td><td>Partly; <code>0 high</code> added, range and limits still absent</td><td>S15</td></tr>
+        <tr><td>S07</td><td>Frontmatter</td><td>Not addressed</td><td>S19</td></tr>
+        <tr><td>S08</td><td>Lifecycle transitions</td><td>Not addressed; single-in-progress rule added</td><td>S13</td></tr>
+        <tr><td>S09</td><td>Body length</td><td>Regressed; the ~250-character guidance was removed</td><td>S20</td></tr>
+        <tr><td>S10</td><td>Git and archival</td><td>Rewritten, still underspecified</td><td>S17, S18</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Smallest useful edit</h3>
+    <p>If only one change is made: adopt S11. Every other item is a clarification that needs a definition of compliance to be checkable at all.</p>
+  </article>
+
+  <footer>
+    <p>Reference IDs: <code>S11</code>–<code>S20</code>. Reviewed upstream blob
+    <code>b5cf3422</code>; the specification remains the source of truth.
+    This page proposes text and does not apply it.</p>
+  </footer>
+</main>
+</body>
+</html>

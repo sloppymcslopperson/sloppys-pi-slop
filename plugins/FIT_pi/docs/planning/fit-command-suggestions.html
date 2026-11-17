@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FIT /fit Command Cleanup: Recommendations</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f14;
+    --panel: #141b23;
+    --panel-2: #10161d;
+    --ink: #e7edf4;
+    --muted: #9aa8b8;
+    --line: #263241;
+    --accent: #73c2ff;
+    --accent-soft: #102a40;
+    --danger: #ff9e9e;
+    --danger-soft: #35171b;
+    --warn: #ffd27a;
+    --warn-soft: #2d2412;
+    --good: #8fe0ad;
+    --good-soft: #12281b;
+    --code: #202b38;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 44px 24px 90px;
+  }
+  header {
+    background: linear-gradient(145deg, #16212c, #111820);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 34px 36px;
+    margin-bottom: 28px;
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: clamp(1.65rem, 3vw, 2.35rem);
+    line-height: 1.12;
+    letter-spacing: -0.025em;
+  }
+  h2 {
+    margin: 34px 0 12px;
+    font-size: 1.3rem;
+    letter-spacing: -0.01em;
+  }
+  h3 { margin: 22px 0 8px; font-size: 1.02rem; }
+  p { margin: 0 0 14px; }
+  .subtitle { margin: 0; color: var(--muted); font-size: 1.06rem; max-width: 760px; }
+  .meta { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .pill {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: .72rem;
+    font-weight: 700;
+    letter-spacing: .055em;
+    text-transform: uppercase;
+  }
+  .note {
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin: 20px 0;
+    color: var(--muted);
+  }
+  .note strong { color: var(--ink); }
+  .callout-good { border-color: #2c5b3e; background: var(--good-soft); }
+  .callout-warn { border-color: #685321; background: var(--warn-soft); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 14px;
+    margin: 16px 0 8px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 18px 16px;
+  }
+  .card h3 { margin-top: 0; }
+  .card p { margin-bottom: 0; color: var(--muted); }
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: .68rem;
+    font-weight: 700;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .tag-remove { background: var(--danger-soft); color: var(--danger); }
+  .tag-change { background: var(--warn-soft); color: var(--warn); }
+  .tag-keep { background: var(--good-soft); color: var(--good); }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 24px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow: hidden;
+    font-size: .94rem;
+  }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 11px 13px;
+    border-bottom: 1px solid var(--line);
+  }
+  th {
+    color: var(--muted);
+    font-size: .72rem;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    background: #111922;
+  }
+  tr:last-child td { border-bottom: 0; }
+  code {
+    background: var(--code);
+    border-radius: 5px;
+    padding: 1px 5px;
+    color: #cfe7ff;
+    font: .9em ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  }
+  ul { margin: 8px 0 18px; padding-left: 22px; }
+  li { margin: 6px 0; }
+  li::marker { color: var(--accent); }
+  .muted { color: var(--muted); }
+  .strike { color: var(--muted); text-decoration: line-through; }
+  footer {
+    margin-top: 42px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: .88rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>FIT <code>/fit</code> Command Cleanup</h1>
+    <p class="subtitle">
+      Recommendations for removing redundant human-facing commands while preserving
+      their useful behavior inside existing commands.
+    </p>
+    <div class="meta">
+      <span class="pill">Suggestions only</span>
+      <span class="pill">No code changes</span>
+      <span class="pill">Human <code>/fit</code> surface</span>
+    </div>
+  </header>
+
+  <div class="note callout-good">
+    <strong>Guiding principle:</strong>
+    keep one obvious command per job. Remove commands that only preview, duplicate,
+    or alias behavior that another command can already provide.
+  </div>
+
+  <h2>Recommended removals</h2>
+
+  <div class="grid">
+    <section class="card">
+      <span class="tag tag-remove">Remove</span>
+      <h3><code>/fit current</code></h3>
+      <p>
+        Fold this into <code>/fit show</code> with no query. That keeps the
+        “show what I’m working on” workflow while deleting a separate command.
+      </p>
+    </section>
+
+    <section class="card">
+      <span class="tag tag-remove">Remove</span>
+      <h3><code>/fit resume</code></h3>
+      <p>
+        <code>/fit work</code> already acts on the current <code>in_progress</code>
+        ticket. Clarify that behavior instead of maintaining a second command.
+      </p>
+    </section>
+
+    <section class="card">
+      <span class="tag tag-remove">Remove</span>
+      <h3><code>/fit slug</code></h3>
+      <p>
+        This is a development preview with little human value now that ticket
+        names are derived automatically from the first seven words.
+      </p>
+    </section>
+  </div>
+
+  <h2>What must change to preserve behavior</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Change</th>
+        <th>Reason</th>
+        <th>Risk</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Make the query optional on <code>/fit show [query]</code>.</td>
+        <td>Preserves the current-ticket view after removing <code>/fit current</code>.</td>
+        <td>Low — one branch in the show handler.</td>
+      </tr>
+      <tr>
+        <td>Document <code>/fit work</code> as “work on current, or promote then work.”</td>
+        <td>Makes the removal of <code>/fit resume</code> obvious and safe.</td>
+        <td>Low — help and README wording only.</td>
+      </tr>
+      <tr>
+        <td>Keep the <code>[review]</code> flag on <code>/fit work</code> and <code>/fit start</code>.</td>
+        <td>Ensures removing <code>/fit resume</code> does not remove review-mode access.</td>
+        <td>Low — already supported.</td>
+      </tr>
+      <tr>
+        <td>Remove <code>/fit slug</code> from help and docs.</td>
+        <td>No replacement is needed; automatic naming handles the normal workflow.</td>
+        <td>Low — documentation cleanup.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Alias cleanup</h2>
+
+  <p>
+    Command aliases are useful when they are short and obvious. These add surface
+    area without much benefit:
+  </p>
+
+  <ul>
+    <li><span class="strike"><code>show-current</code></span>, <span class="strike"><code>sc</code></span> — removed with <code>/fit current</code>.</li>
+    <li><span class="strike"><code>code</code></span>, <span class="strike"><code>vscode</code></span> — keep <code>/fit open</code> as the single name.</li>
+  </ul>
+
+  <p class="muted">
+    Keep useful short aliases: <code>mv</code>, <code>pri</code>, <code>add</code>,
+    <code>w</code>, and <code>r</code>.
+  </p>
+
+  <h2>Do not remove</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Command</th>
+        <th>Why it stays</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>/fit list</code></td><td>Primary board overview.</td></tr>
+      <tr><td><code>/fit show</code></td><td>Primary read command; absorbs current-ticket display.</td></tr>
+      <tr><td><code>/fit open</code></td><td>Used for VS Code handoff; distinct from reading in the terminal.</td></tr>
+      <tr><td><code>/fit edit</code></td><td>Human multiline body editing with revision checks.</td></tr>
+      <tr><td><code>/fit close</code></td><td>Core lifecycle action.</td></tr>
+      <tr><td><code>/fit move</code></td><td>Core lifecycle action.</td></tr>
+      <tr><td><code>/fit priority</code></td><td>Filename priority is not covered by status moves.</td></tr>
+      <tr><td><code>/fit work</code></td><td>Primary agent handoff; absorbs resume behavior.</td></tr>
+      <tr><td><code>/fit start</code></td><td>Create + promote + hand off in one step.</td></tr>
+      <tr><td><code>/fit new</code></td><td>Create without starting work.</td></tr>
+      <tr><td><code>/fit init</code></td><td>Board setup.</td></tr>
+      <tr><td><code>/fit check</code></td><td>Board validation.</td></tr>
+      <tr><td><code>/fit cleanup</code></td><td>Filename maintenance.</td></tr>
+      <tr><td><code>/fit git</code></td><td>Closed-ticket commit recording.</td></tr>
+      <tr><td><code>/fit help</code></td><td>Discoverability.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Net result</h2>
+
+  <div class="note callout-warn">
+    <strong>Three fewer commands:</strong>
+    <code>/fit current</code>, <code>/fit resume</code>, and <code>/fit slug</code>.
+    No workflow is lost. The main behavior change is that <code>/fit show</code>
+    becomes useful without an argument.
+  </div>
+
+  <p>
+    Suggested order of work: update the command handlers first, then help text,
+    then README tables and examples. This is a human-facing cleanup only; the
+    agent <code>fit_*</code> tools are out of scope and should be reviewed in a
+    separate ticket.
+  </p>
+
+  <footer>
+    Generated as a suggestion document. No commands were removed.
+  </footer>
+</main>
+</body>
+</html>
