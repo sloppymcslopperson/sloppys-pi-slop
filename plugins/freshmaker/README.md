@@ -20,7 +20,9 @@ pi -e ./extensions/freshmaker.ts
 
 ## Commands
 
-Monitoring is off by default in each session.
+Monitoring is on by default at the start of each session. Use
+`/freshmaker off` to stop checks and checkpoint appends for the rest of the
+session.
 
 | Command | Behavior |
 | --- | --- |

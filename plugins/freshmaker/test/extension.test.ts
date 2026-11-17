@@ -50,7 +50,9 @@ test("extension toggles, tracks reads, and injects changes hidden from the TUI",
 		freshmakerExtension(pi as never);
 
 		await handlers.session_start({ reason: "startup" } as never, ctx as never);
+		assert.ok(statuses.includes("freshmaker: on"), "freshmaker starts on");
 		await commands.freshmaker.handler("on", ctx as never);
+		assert.ok(notifications.some((message) => message.includes("already on")));
 		await handlers.tool_result({ toolName: "read", isError: false, input: { path: "watched.txt" } } as never, ctx as never);
 
 		const runStart = { systemPromptOptions: { contextFiles: [], skills: [] } } as never;

@@ -2,8 +2,9 @@
  * Freshmaker Extension
  *
  * Tracks files loaded into context, checkpoints their mtime/size after enabled
- * agent runs, and injects a hidden notice when a tracked file changed. The
- * /freshmaker command controls monitoring and inspects or clears the log.
+ * agent runs, and injects a hidden notice when a tracked file changed.
+ * Monitoring starts on in each session. The /freshmaker command controls it and
+ * inspects or clears the log.
  */
 
 import type { ExtensionAPI, ExtensionContext, SessionStartEvent } from "@earendil-works/pi-coding-agent";
@@ -109,7 +110,7 @@ export default function freshmakerExtension(pi: ExtensionAPI): void {
 		cwd = ctx.cwd;
 		sessionId = ctx.sessionManager.getSessionId();
 		logPath = getSessionLogPath(getFreshmakerRoot(), sessionId);
-		enabled = false;
+		enabled = true;
 		tracked = new Set();
 		baselines = {};
 		lastEnabledCheckpoint = null;
@@ -119,7 +120,7 @@ export default function freshmakerExtension(pi: ExtensionAPI): void {
 		baselines = await snapshotPaths(tracked);
 
 		const checkpointReason: CheckpointReason = reason === "reload" || reason === "resume" ? "resume" : "session-start";
-		await appendRecord(checkpointReason, baselines, false);
+		await appendRecord(checkpointReason, baselines, true);
 
 		try {
 			pi.appendEntry("freshmaker", {
