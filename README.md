@@ -1,7 +1,11 @@
-# pi_setup
+# Sloppy's Pi Slop
 
 Canonical home for the Pi plugins made here, plus scripts that install Pi and
-the current plugin set.
+the current plugin set. The repository name is a warning label, not a promise.
+
+If you came here looking for a tidy, enterprise-grade plugin marketplace: this
+is a pile of useful plugins with a silly name. We cleaned up the worst of it.
+Mostly.
 
 ## Plugins
 
@@ -13,7 +17,9 @@ the current plugin set.
 | external | `@svyaddict/pi-git-commands` | Git commands and footer package, installed from its own repository |
 
 Each bundled plugin is an independent Pi package with its own `package.json`,
-lockfile, tests, and README. The repository does not use npm workspaces.
+lockfile, tests, and README. The repository does not use npm workspaces, because
+we like our plugins like we like our slop: separate, self-contained, and only
+loosely aware that the others exist.
 
 ## Creating a plugin
 
@@ -27,6 +33,8 @@ Agents working in this repository should read [AGENTS.md](AGENTS.md). In short:
 5. Keep the plugin installable with `pi install <path>`.
 
 Do not copy `.git`, `node_modules`, or old FIT boards into a plugin directory.
+Future you is going to open that folder at 2 a.m. and ask why there are three
+copies of the same dependency. Do future you a solid.
 
 ## Setup
 
@@ -34,7 +42,8 @@ The setup scripts install or update Pi, install the bundled `FIT_pi`,
 questionnaire, and freshmaker plugins from `plugins/`, and install the external
 `pi-git-commands` package. They are safe to re-run: every managed package is
 reinstalled so refreshed sources are picked up, and old extension files are
-backed up before removal.
+backed up before removal. Think of it as a Roomba for your Pi setup, except it
+occasionally says "updating extensions" and you just have to trust it.
 
 Linux, macOS, and WSL:
 
@@ -73,7 +82,8 @@ Preview the changes first:
 
 Unrelated Pi settings such as provider, model, theme, and other packages are
 left alone. The scripts do not edit `settings.json` directly; `pi install` and
-`pi update` manage their own entries.
+`pi update` manage their own entries. Unlike a certain goblin with a text
+editor, setup knows which settings belong to other people.
 
 ## Options
 
@@ -139,7 +149,8 @@ The runner always executes the bash tests and runs the PowerShell tests when
 `pwsh` or `powershell` is available, skipping them with a clear message
 otherwise. The tests use a temporary home directory, fake local repositories,
 a fake `pi` executable, and a fake `git` executable, so they do not touch real
-Pi configuration, real repositories, or the network.
+Pi configuration, real repositories, or the network. Your actual setup stays
+blissfully un-slopped.
 
 Individual suites:
 
@@ -163,4 +174,5 @@ cd plugins/freshmaker && npm test
 - Existing extension files are backed up before removal.
 - Re-running the scripts does not create duplicate package entries.
 - Bundled plugins are copied from this repository; missing `pi-git-commands`
-  checkouts are the only addon fetched from GitHub.
+  checkouts are the only addon fetched from GitHub. Everything else stays
+  local, like a hermit with a keyboard and a questionable repo name.
