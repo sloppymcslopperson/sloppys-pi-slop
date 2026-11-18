@@ -168,6 +168,420 @@ function answerLine(question: Question, answer: Answer | undefined): string {
 	return `${label}: ${parts.join("; ")}`;
 }
 
+interface PanelHandle {
+	post?: (data: unknown) => void;
+	update?: (html: string) => void;
+	close?: () => void;
+	closed?: Promise<unknown>;
+}
+
+interface PanelOptions {
+	html: string;
+	title?: string;
+	placement?: "sheet" | "widget";
+	onMessage?: (data: unknown) => void;
+}
+
+interface UiContext {
+	ui: { panel?: (options: PanelOptions) => PanelHandle };
+	signal?: AbortSignal;
+}
+
+interface PanelOutcome {
+	answers: Answer[];
+	cancelled: boolean;
+}
+
+/**
+ * The app's native sheet: real tap targets instead of a key bar, and a proper
+ * keyboard for the free-form row. The page owns the interaction and posts one
+ * final message, so the extension's side stays small.
+ */
+function panelHtml(questions: Question[]): string {
+	const data = JSON.stringify(questions).replace(/</g, "\\u003c");
+	return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+:root {
+ color-scheme: light dark;
+ --bg: #f2f2f7; --card: #ffffff; --text: #1c1c1e; --muted: #6e6e73;
+ --tint: #0a84ff; --line: rgba(60, 60, 67, 0.16);
+}
+@media (prefers-color-scheme: dark) {
+ :root { --bg: #000000; --card: #1c1c1e; --text: #f2f2f7; --muted: #98989f; --line: rgba(84, 84, 88, 0.45); }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+body {
+ margin: 0; padding: 12px 12px calc(20px + env(safe-area-inset-bottom));
+ background: var(--bg); color: var(--text);
+ font: 16px/1.4 -apple-system, system-ui, sans-serif;
+}
+header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.title { flex: 1; font-size: 17px; font-weight: 600; }
+#close { border: 0; background: none; color: var(--muted); font-size: 20px; padding: 6px 2px; cursor: pointer; }
+#tabs { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+#tabs::-webkit-scrollbar { display: none; }
+.tab {
+ flex: none; border: 0; cursor: pointer; padding: 7px 13px; border-radius: 999px;
+ background: var(--card); color: var(--muted); font: inherit; font-size: 14px;
+}
+.tab.on { background: var(--tint); color: #fff; }
+.tab.done::after { content: " ✓"; }
+.q { background: var(--card); border-radius: 14px; padding: 14px; }
+.prompt { font-weight: 600; margin-bottom: 8px; }
+.opt {
+ display: flex; gap: 10px; align-items: flex-start; min-height: 44px;
+ padding: 10px 0; border-top: 1px solid var(--line); cursor: pointer;
+}
+.opt:first-of-type { border-top: 0; }
+.mark {
+ flex: none; width: 22px; height: 22px; margin-top: 1px; border-radius: 11px;
+ border: 2px solid var(--line); display: grid; place-items: center;
+ font-size: 12px; line-height: 1; color: #fff;
+}
+.multi .mark { border-radius: 6px; }
+.opt.sel .mark { background: var(--tint); border-color: var(--tint); }
+.opt.sel .label { color: var(--tint); }
+.body { flex: 1; }
+.desc { color: var(--muted); font-size: 13px; }
+input[type="text"] {
+ width: 100%; min-height: 44px; margin-top: 10px; padding: 0 12px;
+ border: 1px solid var(--line); border-radius: 10px;
+ background: var(--bg); color: var(--text); font: inherit;
+}
+.row { display: flex; gap: 8px; margin-top: 10px; }
+.btn {
+ flex: 1; min-height: 44px; border: 0; border-radius: 12px; cursor: pointer;
+ background: var(--tint); color: #fff; font: inherit; font-weight: 600;
+}
+.btn.ghost { background: transparent; color: var(--tint); border: 1px solid var(--tint); }
+.chip {
+ display: inline-flex; align-items: center; gap: 6px; margin: 10px 6px 0 0; padding: 7px 11px;
+ border: 1px solid var(--line); border-radius: 999px; background: var(--bg);
+ color: var(--text); font: inherit; font-size: 14px; cursor: pointer;
+}
+</style>
+</head>
+<body>
+<header><div class="title">Questionnaire</div><button id="close" aria-label="Cancel">✕</button></header>
+<nav id="tabs"></nav>
+<main id="view"></main>
+<script id="data" type="application/json">${data}</script>
+<script>
+(function () {
+ var Q = JSON.parse(document.getElementById("data").textContent);
+ var A = new Map();
+ var cur = 0;
+ var SUBMIT = Q.length;
+
+ function tabName(q, i) {
+ var label = (q.label || "").trim();
+ return label || "Q" + (i + 1);
+ }
+ function h(tag, cls, text) {
+ var e = document.createElement(tag);
+ if (cls) e.className = cls;
+ if (text != null) e.textContent = text;
+ return e;
+ }
+ function entry(q) {
+ return A.get(q.id) || { id: q.id, selections: [], custom: [] };
+ }
+ function write(q, selections, custom) {
+ A.set(q.id, { id: q.id, selections: selections.slice(), custom: custom.slice() });
+ }
+
+ function advance() {
+ for (var step = 1; step <= Q.length; step++) {
+ var idx = (cur + step) % Q.length;
+ if (!A.has(Q[idx].id)) { cur = idx; draw(); return; }
+ }
+ cur = SUBMIT;
+ draw();
+ }
+
+ // A single-question questionnaire submits the moment it is answered.
+ function leave() {
+ if (Q.length === 1) { done(); return; }
+ advance();
+ }
+
+ function summary(q) {
+ var a = A.get(q.id);
+ if (!a) return "Unanswered";
+ var parts = [];
+ if (a.selections.length) {
+ parts.push("selected: " + a.selections.map(function (value) {
+ var idx = q.options.findIndex(function (o) { return o.value === value; });
+ return idx >= 0 ? idx + 1 + ". " + q.options[idx].label : value;
+ }).join(", "));
+ }
+ if (a.custom.length) parts.push("wrote: " + a.custom.join(", "));
+ return parts.length ? parts.join("; ") : "Unanswered";
+ }
+
+ function questionView(q) {
+ var card = h("div", "q" + (q.multiple ? " multi" : ""));
+ card.appendChild(h("div", "prompt", q.prompt));
+ var draft = entry(q);
+ var picked = new Set(draft.selections);
+
+ q.options.forEach(function (o) {
+ var on = picked.has(o.value);
+ var row = h("div", "opt" + (on ? " sel" : ""));
+ row.appendChild(h("div", "mark", on ? "✓" : ""));
+ var body = h("div", "body");
+ body.appendChild(h("div", "label", o.label));
+ if (o.description) body.appendChild(h("div", "desc", o.description));
+ row.appendChild(body);
+ row.onclick = function () {
+ if (q.multiple) {
+ if (picked.has(o.value)) picked.delete(o.value);
+ else picked.add(o.value);
+ write(q, Array.from(picked), entry(q).custom);
+ draw();
+ return;
+ }
+ write(q, [o.value], []);
+ leave();
+ };
+ card.appendChild(row);
+ });
+
+ if (q.multiple) {
+ draft.custom.forEach(function (text, idx) {
+ var chip = h("button", "chip", text + " ✕");
+ chip.onclick = function () {
+ var a = entry(q);
+ a.custom.splice(idx, 1);
+ write(q, a.selections, a.custom);
+ draw();
+ };
+ card.appendChild(chip);
+ });
+ }
+
+ var input = document.createElement("input");
+ input.type = "text";
+ input.placeholder = "Type your own answer";
+ input.autocapitalize = "sentences";
+ card.appendChild(input);
+
+ var row = h("div", "row");
+ var add = h("button", "btn", q.multiple ? "Add answer" : "Use this answer");
+ add.onclick = function () {
+ var text = (input.value || "").trim();
+ if (!text) return;
+ var a = entry(q);
+ if (q.multiple) {
+ a.custom.push(text);
+ write(q, a.selections, a.custom);
+ draw();
+ return;
+ }
+ write(q, [], [text]);
+ leave();
+ };
+ // Return does what the button does, so a typed answer does not need a tap.
+ input.addEventListener("keydown", function (event) {
+ if (event.key !== "Enter" || event.isComposing) return;
+ event.preventDefault();
+ add.onclick();
+ });
+ row.appendChild(add);
+ if (q.multiple) {
+ var doneBtn = h("button", "btn ghost", "Done");
+ doneBtn.onclick = function () {
+ var a = entry(q);
+ // Done is explicit: an empty selection still records an answer.
+ write(q, a.selections, a.custom);
+ advance();
+ };
+ row.appendChild(doneBtn);
+ }
+ card.appendChild(row);
+ return card;
+ }
+
+ function submitView() {
+ var card = h("div", "q");
+ card.appendChild(h("div", "prompt", "Ready to submit"));
+ Q.forEach(function (q, i) {
+ var row = h("div", "opt");
+ var body = h("div", "body");
+ body.appendChild(h("div", "label", tabName(q, i)));
+ body.appendChild(h("div", "desc", summary(q)));
+ row.appendChild(body);
+ row.onclick = function () { cur = i; draw(); };
+ card.appendChild(row);
+ });
+ var row = h("div", "row");
+ var submit = h("button", "btn", "Submit");
+ submit.onclick = done;
+ row.appendChild(submit);
+ var cancel = h("button", "btn ghost", "Cancel");
+ cancel.onclick = bail;
+ row.appendChild(cancel);
+ card.appendChild(row);
+ return card;
+ }
+
+ function draw() {
+ var nav = document.getElementById("tabs");
+ nav.textContent = "";
+ Q.forEach(function (q, i) {
+ var tab = h("button", "tab" + (i === cur ? " on" : "") + (A.has(q.id) ? " done" : ""), tabName(q, i));
+ tab.onclick = function () { cur = i; draw(); };
+ nav.appendChild(tab);
+ });
+ var last = h("button", "tab" + (cur === SUBMIT ? " on" : ""), "Submit");
+ last.onclick = function () { cur = SUBMIT; draw(); };
+ nav.appendChild(last);
+
+ var view = document.getElementById("view");
+ view.textContent = "";
+ view.appendChild(cur === SUBMIT ? submitView() : questionView(Q[cur]));
+ }
+
+ function deliver(payload) {
+ try { pi.close(payload); } catch (e) {}
+ try { pi.post(payload); } catch (e) {}
+ }
+
+ function done() {
+ var answers = [];
+ Q.forEach(function (q) {
+ var a = A.get(q.id);
+ if (a && (a.selections.length || a.custom.length)) {
+ answers.push({ id: q.id, selections: a.selections, custom: a.custom });
+ }
+ });
+ deliver({ type: "submit", answers: answers });
+ }
+
+ function bail() { deliver({ type: "cancel" }); }
+
+ document.getElementById("close").onclick = bail;
+ draw();
+})();
+</script>
+</body>
+</html>`;
+}
+
+/** Keep only answers the questions actually define, in the model's own shape. */
+function normaliseAnswers(questions: Question[], raw: unknown): Answer[] {
+	const found = new Map<string, Answer>();
+	if (Array.isArray(raw)) {
+		for (const entry of raw) {
+			if (!entry || typeof entry !== "object") continue;
+			const candidate = entry as { id?: unknown; selections?: unknown; custom?: unknown };
+			const question = questions.find((item) => item.id === candidate.id);
+			if (!question) continue;
+
+			const allowed = new Set(question.options.map((option) => option.value));
+			const selections = Array.isArray(candidate.selections)
+				? candidate.selections.filter(
+						(value): value is string => typeof value === "string" && allowed.has(value),
+					)
+				: [];
+			const custom = Array.isArray(candidate.custom)
+				? candidate.custom.filter((value): value is string => typeof value === "string")
+				: [];
+			if (selections.length === 0 && custom.length === 0) continue;
+
+			found.set(question.id, {
+				id: question.id,
+				selections,
+				custom,
+				wasCustom: !question.multiple && selections.length === 0 && custom.length > 0,
+			});
+		}
+	}
+
+	return questions.flatMap((question) => {
+		const answer = found.get(question.id);
+		return answer ? [answer] : [];
+	});
+}
+
+/** Ask through the app's native sheet and wait for one final message or a dismissal. */
+async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<PanelOutcome | null> {
+	const panel = ctx.ui?.panel;
+	if (typeof panel !== "function") return null;
+
+	return await new Promise<PanelOutcome | null>((resolve) => {
+		let settled = false;
+		let handle: PanelHandle | undefined;
+
+		const finish = (outcome: PanelOutcome | null) => {
+			if (settled) return;
+			settled = true;
+			if (ctx.signal) ctx.signal.removeEventListener("abort", onAbort);
+			resolve(outcome);
+		};
+
+		const decode = (data: unknown): PanelOutcome | null => {
+			if (!data || typeof data !== "object") return null;
+			const message = data as { type?: unknown; answers?: unknown };
+			if (message.type === "cancel") return { answers: [], cancelled: true };
+			if (message.type === "submit") {
+				return { answers: normaliseAnswers(questions, message.answers), cancelled: false };
+			}
+			return null;
+		};
+
+		function onAbort() {
+			try {
+				handle?.close?.();
+			} catch {
+				// the sheet is already gone
+			}
+			finish(null);
+		}
+
+		try {
+			handle = panel({
+				title: "Questionnaire",
+				placement: "sheet",
+				html: panelHtml(questions),
+				onMessage: (data) => {
+					const outcome = decode(data);
+					if (!outcome) return;
+					try {
+						handle?.close?.();
+					} catch {
+						// already closed by the page
+					}
+					finish(outcome);
+				},
+			});
+		} catch {
+			finish(null);
+			return;
+		}
+
+		const closed = handle?.closed;
+		if (closed && typeof (closed as Promise<unknown>).then === "function") {
+			(closed as Promise<unknown>).then(
+				(result) => finish(decode(result) ?? { answers: [], cancelled: true }),
+				() => finish({ answers: [], cancelled: true }),
+			);
+		}
+
+		if (ctx.signal) {
+			if (ctx.signal.aborted) {
+				onAbort();
+				return;
+			}
+			ctx.signal.addEventListener("abort", onAbort, { once: true });
+		}
+	});
+}
+
 export default function questionnaire(pi: ExtensionAPI) {
 	pi.registerTool({
 		name: "questionnaire",
@@ -194,9 +608,9 @@ export default function questionnaire(pi: ExtensionAPI) {
 			const problem = validate(questions);
 			if (problem) return errorResult(problem, questions);
 
-			if (ctx.mode !== "tui" || !ctx.hasUI) {
+			if (!ctx.hasUI) {
 				return errorResult(
-					"Error: the questionnaire tool requires an interactive TUI. Continue without asking the user and state your assumptions.",
+					"Error: the questionnaire tool requires an interactive UI. Continue without asking the user and state your assumptions.",
 					questions,
 				);
 			}
@@ -204,7 +618,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 			const isMulti = questions.length > 1;
 			const answers = new Map<string, Answer>();
 
-			const result = await ctx.ui.custom<{ answers: Answer[]; cancelled: boolean } | null>(
+			const result = ctx.mode === "tui" ? await ctx.ui.custom<{ answers: Answer[]; cancelled: boolean } | null>(
 				(tui, theme, _keybindings, done) => {
 					const submitTab = questions.length;
 					let currentTab = 0;
@@ -622,7 +1036,7 @@ export default function questionnaire(pi: ExtensionAPI) {
 						handleInput,
 					};
 				},
-			);
+			) : await askWithPanel(ctx as unknown as UiContext, questions);
 
 			if (!result || result.cancelled) {
 				return cancelledResult(questions, result?.answers ?? []);

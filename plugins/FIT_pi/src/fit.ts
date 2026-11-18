@@ -344,16 +344,43 @@ async function assertWritableInsideBoard(board: string, targetPath: string): Pro
 	}
 }
 
+type FileHandle = Awaited<ReturnType<typeof open>>;
+
+/**
+ * Set once a runtime has refused to fsync. Some runtimes (the iOS Pi app among
+ * them) expose `sync` on a file handle but throw synchronously when it is
+ * called, which is invisible to a trailing `.catch()`; probing once keeps every
+ * later write from paying for the same failed throw.
+ */
+let syncUnavailable = false;
+
+/**
+ * Flush a handle to disk when the runtime supports it.
+ *
+ * Durability is a hint here, not a promise: the caller writes a temp file in the
+ * target directory and renames it into place, so replacement stays atomic even
+ * where fsync is missing or unsupported. A refused fsync must never fail the
+ * write itself.
+ */
+async function syncQuietly(handle: FileHandle): Promise<void> {
+	if (syncUnavailable) return;
+	try {
+		await handle.sync();
+	} catch {
+		syncUnavailable = true;
+	}
+}
+
 async function writeTempFile(path: string, content: string): Promise<string> {
 	const temp = join(
 		dirname(path),
 		`.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`,
 	);
-	let handle: Awaited<ReturnType<typeof open>> | undefined;
+	let handle: FileHandle | undefined;
 	try {
 		handle = await open(temp, "wx", 0o666);
 		await handle.writeFile(content, "utf8");
-		await handle.sync().catch(() => undefined);
+		await syncQuietly(handle);
 		await handle.close();
 		handle = undefined;
 		return temp;
