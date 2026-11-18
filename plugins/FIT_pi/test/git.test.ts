@@ -1,11 +1,24 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
-import { boardIgnorePattern, commitWorktreePath, mergeGitignoreContent } from "../src/git.ts";
+import {
+	boardIgnorePattern,
+	commitWorktreePath,
+	mergeGitignoreContent,
+	moveBoardAside,
+} from "../src/git.ts";
 
 const roots: string[] = [];
 
@@ -69,6 +82,65 @@ describe("commit identity", () => {
 		await commitWorktreePath(root, "first");
 
 		assert.equal(await commitWorktreePath(root, "second"), false);
+	});
+});
+
+describe("move board aside", () => {
+	async function makeBoardDir(): Promise<string> {
+		const root = await mkdtemp(join(tmpdir(), "fit-move-"));
+		roots.push(root);
+		const board = join(root, "fit");
+		await mkdir(board, { recursive: true });
+		await writeFile(join(board, "FIT_SPEC.md"), "# Fit Spec\n", "utf8");
+		return board;
+	}
+
+	it("backup lives in the Git directory when the rename succeeds", async () => {
+		const board = await makeBoardDir();
+		const gitDir = join(dirname(board), ".git");
+		await mkdir(gitDir, { recursive: true });
+
+		const backup = await moveBoardAside(board, gitDir);
+
+		assert.equal(dirname(backup), gitDir);
+		assert.equal(await readFile(join(backup, "FIT_SPEC.md"), "utf8"), "# Fit Spec\n");
+		await assert.rejects(access(board));
+	});
+
+	it("falls back to a sibling when the Git directory is on another filesystem", async () => {
+		const board = await makeBoardDir();
+		const gitDir = join(dirname(board), "git-dir");
+		await mkdir(gitDir, { recursive: true });
+		const attempts: string[] = [];
+		const crossDevice = async (from: string, to: string): Promise<void> => {
+			attempts.push(to);
+			if (dirname(to) === gitDir) {
+				throw Object.assign(
+					new Error("EXDEV: cross-device link not permitted"),
+					{ code: "EXDEV" },
+				);
+			}
+			await rename(from, to);
+		};
+
+		const backup = await moveBoardAside(board, gitDir, crossDevice);
+
+		assert.equal(attempts.length, 2);
+		assert.equal(dirname(backup), dirname(board));
+		assert.match(backup, /\/\.fit-init-backup-/);
+		assert.equal(await readFile(join(backup, "FIT_SPEC.md"), "utf8"), "# Fit Spec\n");
+		await assert.rejects(access(board));
+	});
+
+	it("rethrows rename failures that are not EXDEV", async () => {
+		const board = await makeBoardDir();
+		const gitDir = join(dirname(board), "git-dir");
+		await assert.rejects(
+			moveBoardAside(board, gitDir, async () => {
+				throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+			}),
+			/EACCES/,
+		);
 	});
 });
 

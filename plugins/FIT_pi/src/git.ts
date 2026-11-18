@@ -16,7 +16,7 @@ import {
 	rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 
 import { readFitConf, resolveGitIdentity } from "./conf.ts";
@@ -353,6 +353,33 @@ async function createBranchFromBoard(
 }
 
 /**
+ * Move the existing board directory aside so the worktree can take its place.
+ * The parent repo's Git directory is preferred, but it can live on another
+ * filesystem (for example when the checkout is a bind mount): a rename across
+ * devices fails with EXDEV, so fall back to a hidden sibling of the board.
+ */
+export async function moveBoardAside(
+	board: string,
+	gitDir: string,
+	renameFile: typeof rename = rename,
+): Promise<string> {
+	const stamp = `${Date.now()}-${process.pid}`;
+	const preferred = join(gitDir, `fit-init-backup-${stamp}`);
+	try {
+		await renameFile(board, preferred);
+		return preferred;
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EXDEV") throw error;
+	}
+	const sibling = join(
+		dirname(board),
+		`.${basename(board)}-init-backup-${stamp}`,
+	);
+	await renameFile(board, sibling);
+	return sibling;
+}
+
+/**
  * Ensure the board is a linked worktree of the parent repo on `branch`.
  * If the branch is new, its first commit is built from the current board.
  * If the branch already exists, its contents replace the board directory and
@@ -382,11 +409,7 @@ export async function ensureBoardBranchWorktree(
 
 	let backupPath: string | undefined;
 	if (await pathExists(board)) {
-		backupPath = join(
-			gitDir,
-			`fit-init-backup-${Date.now()}-${process.pid}`,
-		);
-		await rename(board, backupPath);
+		backupPath = await moveBoardAside(board, gitDir);
 	}
 
 	try {
