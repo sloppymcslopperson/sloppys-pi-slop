@@ -170,3 +170,141 @@ test("submit with an unknown question id records nothing", async () => {
 	assert.notEqual(result.isError, true);
 	assert.match(text(result), /Scope: Unanswered/);
 });
+
+interface DialogReply {
+	select?: Array<string | undefined>;
+	input?: Array<string | undefined>;
+	confirm?: boolean[];
+}
+
+/** A host with only the dialog methods: what RPC mode actually offers. */
+function dialogHost(replies: DialogReply) {
+	const seen: typeof replies = { select: [], input: [], confirm: [] };
+	const next = <T>(queue: T[] | undefined): T | undefined => queue?.shift();
+	return {
+		seen,
+		ctx: {
+			hasUI: true,
+			mode: "rpc",
+			ui: {
+				async select(_title: string, options: string[]) {
+					const reply = next(replies.select);
+					seen.select?.push(reply);
+					if (reply === undefined) return undefined;
+					// Fail loudly if a scripted reply is not an offered row.
+					assert.ok(options.includes(reply), `"${reply}" is not one of: ${options.join(" | ")}`);
+					return reply;
+				},
+				async input() {
+					const reply = next(replies.input);
+					seen.input?.push(reply);
+					return reply;
+				},
+				async confirm() {
+					const reply = next(replies.confirm) ?? false;
+					seen.confirm?.push(reply);
+					return reply;
+				},
+			},
+		},
+	};
+}
+
+test("a dialog-only host can answer a single question with a selection", async () => {
+	const host = dialogHost({ select: ["2. Large"] });
+	const result = await run(host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.equal(result.details?.cancelled, false);
+	assert.match(text(result), /Scope: user selected: 2\. Large/);
+});
+
+test("a dialog-only host can answer a single question by typing", async () => {
+	const host = dialogHost({ select: ["Type your own answer"], input: ["A medium one"] });
+	const result = await run(host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /Scope: user wrote: A medium one/);
+});
+
+test("an empty typed answer re-asks instead of recording nothing", async () => {
+	const host = dialogHost({
+		select: ["Type your own answer", "1. Small"],
+		input: ["   "],
+	});
+	const result = await run(host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /Scope: user selected: 1\. Small/);
+});
+
+test("dismissing a dialog is a dismissal, not an unavailable host", async () => {
+	const host = dialogHost({ select: [undefined] });
+	const result = await run(host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.equal(result.details?.cancelled, true);
+	assert.match(text(result), /dismissed/i);
+});
+
+test("a dialog-only host can toggle several answers and finish with Done", async () => {
+	const host = dialogHost({
+		select: ["[ ] 1. Small", "[x] 1. Small", "[ ] 1. Small", "[ ] 2. Large", "Done"],
+	});
+	const multi = [
+		{
+			id: "scope",
+			label: "Scope",
+			prompt: "Which scopes?",
+			multiple: true,
+			options: [
+				{ value: "small", label: "Small" },
+				{ value: "large", label: "Large" },
+			],
+		},
+	];
+	const result = await registeredTool().execute("call", { questions: multi }, undefined, undefined, host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /1\. Small, 2\. Large/);
+});
+
+test("a multi-question dialog host can review and submit", async () => {
+	const two = [
+		{ id: "scope", label: "Scope", prompt: "Which scope?", options: [{ value: "small", label: "Small" }] },
+		{ id: "speed", label: "Speed", prompt: "How fast?", options: [{ value: "fast", label: "Fast" }] },
+	];
+	const host = dialogHost({
+		select: ["1. Small", "1. Fast", "Submit answers"],
+	});
+	const result = await registeredTool().execute("call", { questions: two }, undefined, undefined, host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /Scope: user selected: 1\. Small/);
+	assert.match(text(result), /Speed: user selected: 1\. Fast/);
+	assert.equal(host.seen.select?.length, 3);
+});
+
+test("a multi-question dialog host can revisit a question before submitting", async () => {
+	const two = [
+		{ id: "scope", label: "Scope", prompt: "Which scope?", options: [{ value: "small", label: "Small" }, { value: "large", label: "Large" }] },
+		{ id: "speed", label: "Speed", prompt: "How fast?", options: [{ value: "fast", label: "Fast" }] },
+	];
+	const host = dialogHost({
+		select: [
+			"1. Small",
+			"1. Fast",
+			"Review Scope: Scope: user selected: 1. Small",
+			"2. Large",
+			"Submit answers",
+		],
+	});
+	const result = await registeredTool().execute("call", { questions: two }, undefined, undefined, host.ctx);
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /Scope: user selected: 2\. Large/);
+});
+
+test("cancelling the review step is a dismissal that keeps the answers", async () => {
+	const two = [
+		{ id: "scope", label: "Scope", prompt: "Which scope?", options: [{ value: "small", label: "Small" }] },
+		{ id: "speed", label: "Speed", prompt: "How fast?", options: [{ value: "fast", label: "Fast" }] },
+	];
+	const host = dialogHost({ select: ["1. Small", "1. Fast", "Cancel"] });
+	const result = await registeredTool().execute("call", { questions: two }, undefined, undefined, host.ctx);
+	assert.equal(result.details?.cancelled, true);
+	assert.match(text(result), /dismissed/i);
+});

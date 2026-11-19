@@ -12,9 +12,11 @@
  * always offers an inline "Type your own answer" row; there is no way for the
  * model to turn that off.
  *
- * Hosts that cannot show the sheet (no panel API, or a sheet that closes before
- * the user answers) produce an error result asking the model to fall back to
- * plain text; only an explicit cancel from the sheet counts as a dismissal.
+ * Hosts without a terminal render the questions through their native
+ * questionnaire sheet when one is available. Hosts that only expose the dialog
+ * methods (RPC mode: select, input, confirm) ask the same questions one dialog
+ * at a time. A host with neither reports an error result asking the model to
+ * fall back to plain text; only an explicit cancel counts as a dismissal.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -205,8 +207,16 @@ interface PanelOptions {
 	onMessage?: (data: unknown) => void;
 }
 
+interface DialogOptions {
+	signal?: AbortSignal;
+}
+
 interface UiContext {
-	ui: { panel?: (options: PanelOptions) => PanelHandle };
+	ui: {
+		panel?: (options: PanelOptions) => PanelHandle;
+		select?: (title: string, options: string[], opts?: DialogOptions) => Promise<string | undefined>;
+		input?: (title: string, placeholder?: string, opts?: DialogOptions) => Promise<string | undefined>;
+	};
 	signal?: AbortSignal;
 }
 
@@ -613,9 +623,137 @@ async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<Pane
 	});
 }
 
+const SUBMIT_CHOICE = "Submit answers";
+const CANCEL_CHOICE = "Cancel";
+
+function dialogOptions(ctx: UiContext): DialogOptions | undefined {
+	return ctx.signal ? { signal: ctx.signal } : undefined;
+}
+
+/**
+ * Fallback for hosts that have no panel API but do support the dialog methods
+ * (RPC mode, for example). Same questions, asked one dialog at a time: a select
+ * per question, an input for a typed answer, and a review step before submit.
+ */
+async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<PanelResult> {
+	const ui = ctx.ui;
+	if (typeof ui.select !== "function") return { kind: "unavailable" };
+	const select = ui.select.bind(ui);
+	const input = typeof ui.input === "function" ? ui.input.bind(ui) : undefined;
+
+	const opts = dialogOptions(ctx);
+	const answers = new Map<string, Answer>();
+
+	/** Ask one question until it has an answer, or the user backs out. */
+	async function askQuestion(question: Question, index: number): Promise<"answered" | "cancelled"> {
+		const draft: Draft = { selected: new Set(), custom: [] };
+		const title = questions.length > 1
+			? `${tabLabel(question, index)} (${index + 1}/${questions.length}): ${question.prompt}`
+			: question.prompt;
+
+		for (;;) {
+			const lookup = new Map<string, string>();
+			const options: string[] = [];
+
+			question.options.forEach((option, optionIndex) => {
+				const mark = question.multiple ? (draft.selected.has(option.value) ? "[x] " : "[ ] ") : "";
+				const label = `${mark}${optionIndex + 1}. ${option.label}`;
+				lookup.set(label, option.value);
+				options.push(label);
+			});
+			options.push(OTHER_CHOICE);
+			if (question.multiple) options.push(DONE_CHOICE);
+
+			const choice = await select(title, options, opts);
+			if (choice === undefined || choice === CANCEL_CHOICE) return "cancelled";
+
+			if (choice === DONE_CHOICE) {
+				// Done is explicit: an empty selection still records an answer.
+				answers.set(question.id, {
+					id: question.id,
+					selections: [...draft.selected],
+					custom: [...draft.custom],
+					wasCustom: false,
+				});
+				return "answered";
+			}
+
+			if (choice === OTHER_CHOICE) {
+				const typed = input ? await input("Type your own answer", "type something...", opts) : undefined;
+				if (typed === undefined) return "cancelled";
+				const text = typed.trim();
+				if (!text) continue;
+				if (question.multiple) {
+					draft.custom.push(text);
+					continue;
+				}
+				answers.set(question.id, {
+					id: question.id,
+					selections: [],
+					custom: [text],
+					wasCustom: true,
+				});
+				return "answered";
+			}
+
+			const value = lookup.get(choice);
+			if (value === undefined) continue; // an unknown reply is not an answer
+
+			if (question.multiple) {
+				if (draft.selected.has(value)) draft.selected.delete(value);
+				else draft.selected.add(value);
+				continue;
+			}
+
+			answers.set(question.id, {
+				id: question.id,
+				selections: [value],
+				custom: [],
+				wasCustom: false,
+			});
+			return "answered";
+		}
+	}
+
+	for (const [index, question] of questions.entries()) {
+		if ((await askQuestion(question, index)) === "cancelled") {
+			return { kind: "cancelled", answers: [...answers.values()] };
+		}
+	}
+
+	// A single question is done once it has an answer, matching the sheet and TUI.
+	if (questions.length === 1) return { kind: "answered", answers: [...answers.values()] };
+
+	// Review: the user can still revisit a question before the answers are final.
+	for (;;) {
+		const lookup = new Map<string, number>();
+		const options: string[] = [];
+		questions.forEach((question, index) => {
+			const label = `Review ${tabLabel(question, index)}: ${answerLine(question, answers.get(question.id))}`;
+			lookup.set(label, index);
+			options.push(label);
+		});
+		options.push(SUBMIT_CHOICE, CANCEL_CHOICE);
+
+		const choice = await select("Ready to submit", options, opts);
+		if (choice === undefined || choice === CANCEL_CHOICE) {
+			return { kind: "cancelled", answers: [...answers.values()] };
+		}
+		if (choice === SUBMIT_CHOICE) return { kind: "answered", answers: [...answers.values()] };
+
+		const target = lookup.get(choice);
+		if (target === undefined) continue;
+		if ((await askQuestion(questions[target], target)) === "cancelled") {
+			return { kind: "cancelled", answers: [...answers.values()] };
+		}
+	}
+}
+
 /** Ask through the app's native sheet, turning an unusable host into an error result. */
 async function askWithPanelOrFail(ctx: UiContext, questions: Question[]) {
-	const result = await askWithPanel(ctx, questions);
+	let result = await askWithPanel(ctx, questions);
+	// A host may offer dialogs without a panel (RPC mode does); those can still ask.
+	if (result.kind === "unavailable") result = await askWithDialogs(ctx, questions);
 
 	switch (result.kind) {
 		case "answered":

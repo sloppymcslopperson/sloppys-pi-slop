@@ -6,10 +6,11 @@ The `questionnaire` tool asks one or more questions in a single TUI. Every
 question always includes a free-form "Type your own answer" row. Multiple
 questions end on a Submit tab that accepts partial answers.
 
-Hosts without a usable questionnaire sheet (for example a non-TUI host without
-a panel API, or a sheet that closes before the user answers) report an error
-result asking the model to fall back to plain-text questions. Only an explicit
-cancel from the sheet is reported as a user dismissal.
+Hosts without a usable questionnaire sheet fall back to their dialog methods
+and ask the same questions one dialog at a time: a select per question, an
+input for a typed answer, and a review step before submit. Hosts with neither a
+sheet nor dialogs report an error result asking the model to fall back to
+plain-text questions. Only an explicit cancel is reported as a user dismissal.
 
 ## Install
 
