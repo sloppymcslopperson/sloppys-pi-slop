@@ -11,6 +11,10 @@
  * end on an explicit Submit tab, which accepts partial answers. Every question
  * always offers an inline "Type your own answer" row; there is no way for the
  * model to turn that off.
+ *
+ * Hosts that cannot show the sheet (no panel API, or a sheet that closes before
+ * the user answers) produce an error result asking the model to fall back to
+ * plain text; only an explicit cancel from the sheet counts as a dismissal.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -78,6 +82,8 @@ interface QuestionnaireDetails {
 	questions: Question[];
 	answers: Answer[];
 	cancelled: boolean;
+	/** Set when the questionnaire could not be shown or could not complete. */
+	error?: string;
 }
 
 const OTHER_CHOICE = "Type your own answer";
@@ -92,15 +98,32 @@ function answerLabel(question: Question): string {
 	return question.label?.trim() || question.id;
 }
 
-function toDetails(questions: Question[], answers: Answer[], cancelled: boolean): QuestionnaireDetails {
-	return { questions, answers, cancelled };
+function toDetails(
+	questions: Question[],
+	answers: Answer[],
+	cancelled: boolean,
+	error?: string,
+): QuestionnaireDetails {
+	return error === undefined ? { questions, answers, cancelled } : { questions, answers, cancelled, error };
 }
 
 function errorResult(message: string, questions: Question[] = []) {
 	return {
 		content: [{ type: "text" as const, text: message }],
 		isError: true,
-		details: toDetails(questions, [], true),
+		details: toDetails(questions, [], false, message),
+	};
+}
+
+function answeredResult(questions: Question[], answers: Answer[]) {
+	const lines = questions.map((question) => {
+		const answer = answers.find((candidate) => candidate.id === question.id);
+		return answerLine(question, answer);
+	});
+
+	return {
+		content: [{ type: "text" as const, text: lines.join("\n") }],
+		details: toDetails(questions, answers, false),
 	};
 }
 
@@ -185,11 +208,6 @@ interface PanelOptions {
 interface UiContext {
 	ui: { panel?: (options: PanelOptions) => PanelHandle };
 	signal?: AbortSignal;
-}
-
-interface PanelOutcome {
-	answers: Answer[];
-	cancelled: boolean;
 }
 
 /**
@@ -508,28 +526,38 @@ function normaliseAnswers(questions: Question[], raw: unknown): Answer[] {
 	});
 }
 
-/** Ask through the app's native sheet and wait for one final message or a dismissal. */
-async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<PanelOutcome | null> {
-	const panel = ctx.ui?.panel;
-	if (typeof panel !== "function") return null;
+/**
+ * How a panel attempt ended. "unavailable" and "lost" are failures to show the
+ * sheet, not user decisions, so they must never be reported as a cancellation.
+ */
+type PanelResult =
+	| { kind: "answered"; answers: Answer[] }
+	| { kind: "cancelled"; answers: Answer[] }
+	| { kind: "unavailable" }
+	| { kind: "lost" };
 
-	return await new Promise<PanelOutcome | null>((resolve) => {
+/** Ask through the app's native sheet and wait for one final message or a dismissal. */
+async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<PanelResult> {
+	const panel = ctx.ui?.panel;
+	if (typeof panel !== "function") return { kind: "unavailable" };
+
+	return await new Promise<PanelResult>((resolve) => {
 		let settled = false;
 		let handle: PanelHandle | undefined;
 
-		const finish = (outcome: PanelOutcome | null) => {
+		const finish = (result: PanelResult) => {
 			if (settled) return;
 			settled = true;
 			if (ctx.signal) ctx.signal.removeEventListener("abort", onAbort);
-			resolve(outcome);
+			resolve(result);
 		};
 
-		const decode = (data: unknown): PanelOutcome | null => {
+		const decode = (data: unknown): PanelResult | null => {
 			if (!data || typeof data !== "object") return null;
 			const message = data as { type?: unknown; answers?: unknown };
-			if (message.type === "cancel") return { answers: [], cancelled: true };
+			if (message.type === "cancel") return { kind: "cancelled", answers: [] };
 			if (message.type === "submit") {
-				return { answers: normaliseAnswers(questions, message.answers), cancelled: false };
+				return { kind: "answered", answers: normaliseAnswers(questions, message.answers) };
 			}
 			return null;
 		};
@@ -540,7 +568,7 @@ async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<Pane
 			} catch {
 				// the sheet is already gone
 			}
-			finish(null);
+			finish({ kind: "cancelled", answers: [] });
 		}
 
 		try {
@@ -549,26 +577,29 @@ async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<Pane
 				placement: "sheet",
 				html: panelHtml(questions),
 				onMessage: (data) => {
-					const outcome = decode(data);
-					if (!outcome) return;
+					const result = decode(data);
+					if (!result) return;
 					try {
 						handle?.close?.();
 					} catch {
 						// already closed by the page
 					}
-					finish(outcome);
+					finish(result);
 				},
 			});
 		} catch {
-			finish(null);
+			finish({ kind: "unavailable" });
 			return;
 		}
 
+		// A sheet that goes away without posting submit/cancel was never answered:
+		// report it as lost so the agent falls back to plain text instead of
+		// believing the user dismissed the questions.
 		const closed = handle?.closed;
 		if (closed && typeof (closed as Promise<unknown>).then === "function") {
 			(closed as Promise<unknown>).then(
-				(result) => finish(decode(result) ?? { answers: [], cancelled: true }),
-				() => finish({ answers: [], cancelled: true }),
+				(message) => finish(decode(message) ?? { kind: "lost" }),
+				() => finish({ kind: "lost" }),
 			);
 		}
 
@@ -580,6 +611,28 @@ async function askWithPanel(ctx: UiContext, questions: Question[]): Promise<Pane
 			ctx.signal.addEventListener("abort", onAbort, { once: true });
 		}
 	});
+}
+
+/** Ask through the app's native sheet, turning an unusable host into an error result. */
+async function askWithPanelOrFail(ctx: UiContext, questions: Question[]) {
+	const result = await askWithPanel(ctx, questions);
+
+	switch (result.kind) {
+		case "answered":
+			return answeredResult(questions, result.answers);
+		case "cancelled":
+			return cancelledResult(questions, result.answers);
+		case "unavailable":
+			return errorResult(
+				"Error: this host cannot display the questionnaire sheet, so the user was not asked anything. Do not treat this as a dismissal: ask the questions in plain text instead and state your assumptions.",
+				questions,
+			);
+		case "lost":
+			return errorResult(
+				"Error: the questionnaire sheet closed before the user answered, so no answers were recorded. Do not treat this as a dismissal: ask the questions in plain text instead.",
+				questions,
+			);
+	}
 }
 
 export default function questionnaire(pi: ExtensionAPI) {
@@ -610,15 +663,19 @@ export default function questionnaire(pi: ExtensionAPI) {
 
 			if (!ctx.hasUI) {
 				return errorResult(
-					"Error: the questionnaire tool requires an interactive UI. Continue without asking the user and state your assumptions.",
+					"Error: the questionnaire tool requires an interactive UI. Ask the questions in plain text instead and state your assumptions.",
 					questions,
 				);
+			}
+
+			if (ctx.mode !== "tui") {
+				return await askWithPanelOrFail(ctx as unknown as UiContext, questions);
 			}
 
 			const isMulti = questions.length > 1;
 			const answers = new Map<string, Answer>();
 
-			const result = ctx.mode === "tui" ? await ctx.ui.custom<{ answers: Answer[]; cancelled: boolean } | null>(
+			const result = await ctx.ui.custom<{ answers: Answer[]; cancelled: boolean } | null>(
 				(tui, theme, _keybindings, done) => {
 					const submitTab = questions.length;
 					let currentTab = 0;
@@ -1036,21 +1093,13 @@ export default function questionnaire(pi: ExtensionAPI) {
 						handleInput,
 					};
 				},
-			) : await askWithPanel(ctx as unknown as UiContext, questions);
+			);
 
 			if (!result || result.cancelled) {
 				return cancelledResult(questions, result?.answers ?? []);
 			}
 
-			const lines = questions.map((question) => {
-				const answer = result.answers.find((candidate) => candidate.id === question.id);
-				return answerLine(question, answer);
-			});
-
-			return {
-				content: [{ type: "text" as const, text: lines.join("\n") }],
-				details: toDetails(questions, result.answers, false),
-			};
+			return answeredResult(questions, result.answers);
 		},
 
 		renderCall(args, theme) {
@@ -1070,6 +1119,9 @@ export default function questionnaire(pi: ExtensionAPI) {
 			if (!details) {
 				const first = result.content[0];
 				return new Text(first?.type === "text" ? first.text : "", 0, 0);
+			}
+			if (details.error) {
+				return new Text(theme.fg("warning", details.error), 0, 0);
 			}
 			if (details.cancelled) {
 				return new Text(theme.fg("warning", "Cancelled"), 0, 0);
