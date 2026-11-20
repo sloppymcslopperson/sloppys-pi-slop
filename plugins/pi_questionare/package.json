@@ -24,8 +24,8 @@
 		"node": ">=22.19.0"
 	},
 	"scripts": {
-		"test": "node --test test/*.test.ts",
-		"typecheck": "tsc --noEmit",
+		"test": "bash scripts/with-lock.sh node --test test/*.test.ts",
+		"typecheck": "bash scripts/with-lock.sh tsc --noEmit",
 		"check": "npm run typecheck && npm test"
 	},
 	"peerDependencies": {
