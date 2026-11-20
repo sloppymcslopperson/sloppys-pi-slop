@@ -23,6 +23,11 @@ prompt. Selecting it returns a normal, non-error result that asks the model to
 put the question in plain text, keeping any answers already collected; it is
 never reported as a dismissal.
 
+Multiple-select questions on those hosts also get **"Add an item in chat"**.
+Picking it returns the items selected so far and asks the model to collect the
+additional items in plain text, so a list can grow past the offered options
+without a text-input dialog.
+
 Set `PI_QUESTIONNAIRE_TYPED_TEXT=0` to force the chat hand-off, or `=1` to force
 the text prompt (useful to test either behaviour on any host).
 

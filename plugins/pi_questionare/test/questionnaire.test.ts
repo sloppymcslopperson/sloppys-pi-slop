@@ -179,7 +179,13 @@ interface DialogReply {
 
 /** A host with only the dialog methods: what RPC mode actually offers. */
 function dialogHost(replies: DialogReply) {
-	const seen: typeof replies = { select: [], input: [], confirm: [] };
+	const seen = {
+		select: [] as Array<string | undefined>,
+		input: [] as Array<string | undefined>,
+		confirm: [] as boolean[],
+		/** The rows offered for each select, in order. */
+		options: [] as string[][],
+	};
 	const next = <T>(queue: T[] | undefined): T | undefined => queue?.shift();
 	return {
 		seen,
@@ -188,8 +194,9 @@ function dialogHost(replies: DialogReply) {
 			mode: "rpc",
 			ui: {
 				async select(_title: string, options: string[]) {
+					seen.options.push([...options]);
 					const reply = next(replies.select);
-					seen.select?.push(reply);
+					seen.select.push(reply);
 					if (reply === undefined) return undefined;
 					// Fail loudly if a scripted reply is not an offered row.
 					assert.ok(options.includes(reply), `"${reply}" is not one of: ${options.join(" | ")}`);
@@ -197,12 +204,12 @@ function dialogHost(replies: DialogReply) {
 				},
 				async input() {
 					const reply = next(replies.input);
-					seen.input?.push(reply);
+					seen.input.push(reply);
 					return reply;
 				},
 				async confirm() {
 					const reply = next(replies.confirm) ?? false;
-					seen.confirm?.push(reply);
+					seen.confirm.push(reply);
 					return reply;
 				},
 			},
@@ -360,4 +367,55 @@ test("a host that can type still gets the 'Type your own answer' prompt", async 
 	assert.notEqual(result.isError, true);
 	assert.match(text(result), /Scope: user wrote: A medium one/);
 	assert.deepEqual(host.seen.input, ["A medium one"]);
+});
+
+const multiSelect = [
+	{
+		id: "scope",
+		label: "Scope",
+		prompt: "Which scopes?",
+		multiple: true,
+		options: [
+			{ value: "small", label: "Small" },
+			{ value: "large", label: "Large" },
+		],
+	},
+];
+
+test("a multi-select host without text entry offers 'Add an item in chat' with the current picks", async () => {
+	const host = dialogHost({ select: ["[ ] 1. Small", "[ ] 2. Large", "Add an item in chat"] });
+	const result = await withTypedText("0", () =>
+		registeredTool().execute("call", { questions: multiSelect }, undefined, undefined, host.ctx),
+	);
+
+	assert.notEqual(result.isError, true);
+	assert.equal(result.details?.cancelled, false);
+	assert.doesNotMatch(text(result), /dismissed/i);
+	assert.match(text(result), /wants to add items to Scope/i);
+	assert.match(text(result), /Already selected there: Small, Large/);
+	assert.match(text(result), /which additional items/i);
+	// Nothing is typed on such a host; the model asks instead.
+	assert.deepEqual(host.seen.input, []);
+});
+
+test("the add-item row is offered only for multi-select questions", async () => {
+	const host = dialogHost({ select: ["1. Small"] });
+	await withTypedText("0", () => run(host.ctx));
+	assert.ok(!(host.seen.options[0] ?? []).includes("Add an item in chat"));
+});
+
+test("a multi-select host that can type keeps the typed row instead of the add-item row", async () => {
+	const host = dialogHost({
+		select: ["[ ] 1. Small", "Type your own answer", "Done"],
+		input: ["A medium one"],
+	});
+	const result = await withTypedText("1", () =>
+		registeredTool().execute("call", { questions: multiSelect }, undefined, undefined, host.ctx),
+	);
+
+	const offered = host.seen.options[0] ?? [];
+	assert.ok(offered.includes("Type your own answer"));
+	assert.ok(!offered.includes("Add an item in chat"));
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /user wrote: A medium one/);
 });

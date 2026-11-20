@@ -97,6 +97,8 @@ interface QuestionnaireDetails {
 const OTHER_CHOICE = "Type your own answer";
 /** Offered instead of the text prompt on hosts that cannot collect typed text. */
 const CHAT_CHOICE = "Answer this in chat";
+/** Multi-select only: hand the "add another item" job back to the model. */
+const ADD_CHOICE = "Add an item in chat";
 const DONE_CHOICE = "Done";
 const NO_ANSWER = "(no answer)";
 
@@ -168,21 +170,35 @@ function hostCollectsTypedText(): boolean {
 	return true;
 }
 
-function deferredResult(questions: Question[], answers: Answer[], ids: string[]) {
-	const labels = ids
-		.map((id) => {
-			const index = questions.findIndex((question) => question.id === id);
-			return index >= 0 ? tabLabel(questions[index], index) : id;
-		})
-		.join(", ");
+function deferredResult(
+	questions: Question[],
+	answers: Answer[],
+	ids: string[],
+	adding?: { id: string; labels: string[] },
+) {
+	const labelOf = (id: string) => {
+		const index = questions.findIndex((question) => question.id === id);
+		return index >= 0 ? tabLabel(questions[index], index) : id;
+	};
 	const collected = questions
 		.map((question) => answerLine(question, answers.find((answer) => answer.id === question.id)))
 		.filter((line) => !line.endsWith(": Unanswered"));
 
-	const text = [
-		`The user chose to answer ${labels} in their own words in chat, so no answer was captured for it. Ask that question in plain text in your next message and use their reply; do not treat this as a dismissal and do not re-ask it with this tool.`,
-		...(collected.length ? ["", "Already answered:", ...collected] : []),
-	];
+	const text = [];
+	if (adding) {
+		const selected = adding.labels.length > 0 ? adding.labels.join(", ") : "nothing yet";
+		text.push(
+			`The user wants to add items to ${labelOf(adding.id)} that are not in the offered options. ` +
+				`Already selected there: ${selected}. Ask them in plain text which additional items they want, ` +
+				"then continue with their reply and keep the selections above. Do not treat this as a dismissal and do not re-ask it with this tool.",
+		);
+	} else {
+		text.push(
+			`The user chose to answer ${ids.map(labelOf).join(", ")} in their own words in chat, so no answer was captured for it. ` +
+				"Ask that question in plain text in your next message and use their reply; do not treat this as a dismissal and do not re-ask it with this tool.",
+		);
+	}
+	if (collected.length > 0) text.push("", "Already answered:", ...collected);
 
 	return {
 		content: [{ type: "text" as const, text: text.join("\n") }],
@@ -604,7 +620,7 @@ function normaliseAnswers(questions: Question[], raw: unknown): Answer[] {
 type PanelResult =
 	| { kind: "answered"; answers: Answer[] }
 	| { kind: "cancelled"; answers: Answer[] }
-	| { kind: "deferred"; answers: Answer[]; ids: string[] }
+	| { kind: "deferred"; answers: Answer[]; ids: string[]; adding?: { id: string; labels: string[] } }
 	| { kind: "unavailable" }
 	| { kind: "lost" };
 
@@ -708,7 +724,15 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 	const answers = new Map<string, Answer>();
 
 	/** Ask one question until it has an answer, or the user backs out. */
-	async function askQuestion(question: Question, index: number): Promise<"answered" | "cancelled" | "deferred"> {
+	async function askQuestion(
+		question: Question,
+		index: number,
+	): Promise<
+		| { outcome: "answered" }
+		| { outcome: "cancelled" }
+		| { outcome: "deferred" }
+		| { outcome: "add-items"; labels: string[] }
+	> {
 		const draft: Draft = { selected: new Set(), custom: [] };
 		const title = questions.length > 1
 			? `${tabLabel(question, index)} (${index + 1}/${questions.length}): ${question.prompt}`
@@ -726,10 +750,19 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 			});
 			options.push(typing ? OTHER_CHOICE : CHAT_CHOICE);
 			if (question.multiple) options.push(DONE_CHOICE);
+			// A host without text entry cannot add an option by typing, so offer the
+			// job to the model instead, carrying what is already selected.
+			if (question.multiple && !typing) options.push(ADD_CHOICE);
 
 			const choice = await select(title, options, opts);
-			if (choice === undefined || choice === CANCEL_CHOICE) return "cancelled";
-			if (!typing && choice === CHAT_CHOICE) return "deferred";
+			if (choice === undefined || choice === CANCEL_CHOICE) return { outcome: "cancelled" };
+			if (!typing && choice === CHAT_CHOICE) return { outcome: "deferred" };
+			if (!typing && choice === ADD_CHOICE) {
+				const labels = question.options
+					.filter((option) => draft.selected.has(option.value))
+					.map((option) => option.label);
+				return { outcome: "add-items", labels };
+			}
 
 			if (choice === DONE_CHOICE) {
 				// Done is explicit: an empty selection still records an answer.
@@ -739,12 +772,12 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 					custom: [...draft.custom],
 					wasCustom: false,
 				});
-				return "answered";
+				return { outcome: "answered" };
 			}
 
 			if (choice === OTHER_CHOICE) {
 				const typed = input ? await input("Type your own answer", "type something...", opts) : undefined;
-				if (typed === undefined) return "cancelled";
+				if (typed === undefined) return { outcome: "cancelled" };
 				const text = typed.trim();
 				if (!text) continue;
 				if (question.multiple) {
@@ -757,7 +790,7 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 					custom: [text],
 					wasCustom: true,
 				});
-				return "answered";
+				return { outcome: "answered" };
 			}
 
 			const value = lookup.get(choice);
@@ -775,15 +808,23 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 				custom: [],
 				wasCustom: false,
 			});
-			return "answered";
+			return { outcome: "answered" };
 		}
 	}
 
 	for (const [index, question] of questions.entries()) {
 		const outcome = await askQuestion(question, index);
-		if (outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
-		if (outcome === "deferred") {
+		if (outcome.outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
+		if (outcome.outcome === "deferred") {
 			return { kind: "deferred", answers: [...answers.values()], ids: [question.id] };
+		}
+		if (outcome.outcome === "add-items") {
+			return {
+				kind: "deferred",
+				answers: [...answers.values()],
+				ids: [question.id],
+				adding: { id: question.id, labels: outcome.labels },
+			};
 		}
 	}
 
@@ -810,9 +851,17 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 		const target = lookup.get(choice);
 		if (target === undefined) continue;
 		const outcome = await askQuestion(questions[target], target);
-		if (outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
-		if (outcome === "deferred") {
+		if (outcome.outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
+		if (outcome.outcome === "deferred") {
 			return { kind: "deferred", answers: [...answers.values()], ids: [questions[target].id] };
+		}
+		if (outcome.outcome === "add-items") {
+			return {
+				kind: "deferred",
+				answers: [...answers.values()],
+				ids: [questions[target].id],
+				adding: { id: questions[target].id, labels: outcome.labels },
+			};
 		}
 	}
 }
@@ -834,7 +883,7 @@ async function askWithPanelOrFail(ctx: UiContext, questions: Question[]) {
 				questions,
 			);
 		case "deferred":
-			return deferredResult(questions, result.answers, result.ids);
+			return deferredResult(questions, result.answers, result.ids, result.adding);
 		case "lost":
 			return errorResult(
 				"Error: the questionnaire sheet closed before the user answered, so no answers were recorded. Do not treat this as a dismissal: ask the questions in plain text instead.",
@@ -853,6 +902,8 @@ export default function questionnaire(pi: ExtensionAPI) {
 			"options when `multiple` is true. Every question always includes a free-form 'Type your own answer' row. " +
 			"On hosts that cannot collect typed text (the stock ACP adapter, pi-acp), that row is offered as " +
 			"'Answer this in chat' and the tool returns without an answer: ask that question in plain text instead. " +
+			"Multiple-select questions there also offer 'Add an item in chat', which returns the current selections " +
+			"and asks you to collect the extra items in plain text. " +
 			"Use `id` as the stable key, `value` as the machine-readable answer, `label` as the short tab text, and " +
 			"`prompt` as the full question. A single question submits as soon as it is answered; multiple questions end " +
 			"on a Submit tab that accepts partial answers. Unanswered questions are reported as Unanswered.\n\n" +
