@@ -12,6 +12,20 @@ input for a typed answer, and a review step before submit. Hosts with neither a
 sheet nor dialogs report an error result asking the model to fall back to
 plain-text questions. Only an explicit cancel is reported as a user dismissal.
 
+### Hosts that cannot collect typed text
+
+The stock ACP adapter ([pi-acp](https://www.npmjs.com/package/pi-acp)) renders
+`select` and `confirm` UI requests but cancels `input`/`editor` requests, so a
+text prompt would end as a silent dismissal. The extension detects that adapter
+by inspecting the parent process command line (Linux `/proc`) and, on those
+hosts, offers the free-form row as **"Answer this in chat"** instead of a text
+prompt. Selecting it returns a normal, non-error result that asks the model to
+put the question in plain text, keeping any answers already collected; it is
+never reported as a dismissal.
+
+Set `PI_QUESTIONNAIRE_TYPED_TEXT=0` to force the chat hand-off, or `=1` to force
+the text prompt (useful to test either behaviour on any host).
+
 ## Install
 
 Install the package from this checkout:

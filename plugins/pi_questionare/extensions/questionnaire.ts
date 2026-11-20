@@ -17,8 +17,14 @@
  * methods (RPC mode: select, input, confirm) ask the same questions one dialog
  * at a time. A host with neither reports an error result asking the model to
  * fall back to plain text; only an explicit cancel counts as a dismissal.
+ *
+ * The stock ACP adapter (pi-acp) shows selects but cannot collect free-form
+ * text: it answers input/editor UI requests with a cancel. On those hosts the
+ * free-form row becomes a selection, "Answer this in chat", which hands the
+ * question back to the model instead of opening a dead-end text prompt.
  */
 
+import { readFileSync } from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	Editor,
@@ -89,6 +95,8 @@ interface QuestionnaireDetails {
 }
 
 const OTHER_CHOICE = "Type your own answer";
+/** Offered instead of the text prompt on hosts that cannot collect typed text. */
+const CHAT_CHOICE = "Answer this in chat";
 const DONE_CHOICE = "Done";
 const NO_ANSWER = "(no answer)";
 
@@ -125,6 +133,59 @@ function answeredResult(questions: Question[], answers: Answer[]) {
 
 	return {
 		content: [{ type: "text" as const, text: lines.join("\n") }],
+		details: toDetails(questions, answers, false),
+	};
+}
+
+/**
+ * True when the host can collect free-form text through `ui.input`.
+ *
+ * pi-acp (the stock ACP adapter) renders `select`/`confirm` requests but cancels
+ * `input`/`editor`, so offering a text prompt there ends in a silent dismissal.
+ * The agent runs as a child of its adapter, so the parent command line is the
+ * reliable local signal. `PI_QUESTIONNAIRE_TYPED_TEXT=0|1` overrides detection.
+ */
+function hostCollectsTypedText(): boolean {
+	const forced = process.env.PI_QUESTIONNAIRE_TYPED_TEXT;
+	if (forced === "0") return false;
+	if (forced === "1") return true;
+
+	let pid = process.pid;
+	for (let depth = 0; depth < 3; depth += 1) {
+		try {
+			const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+			const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
+			const ppid = Number.parseInt(fields[1] ?? "", 10);
+			if (!Number.isFinite(ppid) || ppid <= 0) return true;
+			if (/pi-acp/.test(readFileSync(`/proc/${ppid}/cmdline`, "utf8"))) return false;
+			pid = ppid;
+		} catch {
+			// Not Linux, or /proc is unavailable: assume the host can ask for text.
+			return true;
+		}
+	}
+
+	return true;
+}
+
+function deferredResult(questions: Question[], answers: Answer[], ids: string[]) {
+	const labels = ids
+		.map((id) => {
+			const index = questions.findIndex((question) => question.id === id);
+			return index >= 0 ? tabLabel(questions[index], index) : id;
+		})
+		.join(", ");
+	const collected = questions
+		.map((question) => answerLine(question, answers.find((answer) => answer.id === question.id)))
+		.filter((line) => !line.endsWith(": Unanswered"));
+
+	const text = [
+		`The user chose to answer ${labels} in their own words in chat, so no answer was captured for it. Ask that question in plain text in your next message and use their reply; do not treat this as a dismissal and do not re-ask it with this tool.`,
+		...(collected.length ? ["", "Already answered:", ...collected] : []),
+	];
+
+	return {
+		content: [{ type: "text" as const, text: text.join("\n") }],
 		details: toDetails(questions, answers, false),
 	};
 }
@@ -543,6 +604,7 @@ function normaliseAnswers(questions: Question[], raw: unknown): Answer[] {
 type PanelResult =
 	| { kind: "answered"; answers: Answer[] }
 	| { kind: "cancelled"; answers: Answer[] }
+	| { kind: "deferred"; answers: Answer[]; ids: string[] }
 	| { kind: "unavailable" }
 	| { kind: "lost" };
 
@@ -639,13 +701,14 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 	const ui = ctx.ui;
 	if (typeof ui.select !== "function") return { kind: "unavailable" };
 	const select = ui.select.bind(ui);
-	const input = typeof ui.input === "function" ? ui.input.bind(ui) : undefined;
+	const typing = hostCollectsTypedText();
+	const input = typing && typeof ui.input === "function" ? ui.input.bind(ui) : undefined;
 
 	const opts = dialogOptions(ctx);
 	const answers = new Map<string, Answer>();
 
 	/** Ask one question until it has an answer, or the user backs out. */
-	async function askQuestion(question: Question, index: number): Promise<"answered" | "cancelled"> {
+	async function askQuestion(question: Question, index: number): Promise<"answered" | "cancelled" | "deferred"> {
 		const draft: Draft = { selected: new Set(), custom: [] };
 		const title = questions.length > 1
 			? `${tabLabel(question, index)} (${index + 1}/${questions.length}): ${question.prompt}`
@@ -661,11 +724,12 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 				lookup.set(label, option.value);
 				options.push(label);
 			});
-			options.push(OTHER_CHOICE);
+			options.push(typing ? OTHER_CHOICE : CHAT_CHOICE);
 			if (question.multiple) options.push(DONE_CHOICE);
 
 			const choice = await select(title, options, opts);
 			if (choice === undefined || choice === CANCEL_CHOICE) return "cancelled";
+			if (!typing && choice === CHAT_CHOICE) return "deferred";
 
 			if (choice === DONE_CHOICE) {
 				// Done is explicit: an empty selection still records an answer.
@@ -716,8 +780,10 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 	}
 
 	for (const [index, question] of questions.entries()) {
-		if ((await askQuestion(question, index)) === "cancelled") {
-			return { kind: "cancelled", answers: [...answers.values()] };
+		const outcome = await askQuestion(question, index);
+		if (outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
+		if (outcome === "deferred") {
+			return { kind: "deferred", answers: [...answers.values()], ids: [question.id] };
 		}
 	}
 
@@ -743,8 +809,10 @@ async function askWithDialogs(ctx: UiContext, questions: Question[]): Promise<Pa
 
 		const target = lookup.get(choice);
 		if (target === undefined) continue;
-		if ((await askQuestion(questions[target], target)) === "cancelled") {
-			return { kind: "cancelled", answers: [...answers.values()] };
+		const outcome = await askQuestion(questions[target], target);
+		if (outcome === "cancelled") return { kind: "cancelled", answers: [...answers.values()] };
+		if (outcome === "deferred") {
+			return { kind: "deferred", answers: [...answers.values()], ids: [questions[target].id] };
 		}
 	}
 }
@@ -765,6 +833,8 @@ async function askWithPanelOrFail(ctx: UiContext, questions: Question[]) {
 				"Error: this host cannot display the questionnaire sheet, so the user was not asked anything. Do not treat this as a dismissal: ask the questions in plain text instead and state your assumptions.",
 				questions,
 			);
+		case "deferred":
+			return deferredResult(questions, result.answers, result.ids);
 		case "lost":
 			return errorResult(
 				"Error: the questionnaire sheet closed before the user answered, so no answers were recorded. Do not treat this as a dismissal: ask the questions in plain text instead.",
@@ -781,6 +851,8 @@ export default function questionnaire(pi: ExtensionAPI) {
 			"Ask the user one or more multiple-choice questions in a single tabbed questionnaire. " +
 			"The user can switch between questions with left/right (or Tab), change earlier answers, and pick several " +
 			"options when `multiple` is true. Every question always includes a free-form 'Type your own answer' row. " +
+			"On hosts that cannot collect typed text (the stock ACP adapter, pi-acp), that row is offered as " +
+			"'Answer this in chat' and the tool returns without an answer: ask that question in plain text instead. " +
 			"Use `id` as the stable key, `value` as the machine-readable answer, `label` as the short tab text, and " +
 			"`prompt` as the full question. A single question submits as soon as it is answered; multiple questions end " +
 			"on a Submit tab that accepts partial answers. Unanswered questions are reported as Unanswered.\n\n" +

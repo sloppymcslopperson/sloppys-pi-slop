@@ -308,3 +308,56 @@ test("cancelling the review step is a dismissal that keeps the answers", async (
 	assert.equal(result.details?.cancelled, true);
 	assert.match(text(result), /dismissed/i);
 });
+
+/** Run with the typed-text capability pinned, the way pi-acp's env detection reads it. */
+async function withTypedText<T>(value: "0" | "1", fn: () => Promise<T>): Promise<T> {
+	const previous = process.env.PI_QUESTIONNAIRE_TYPED_TEXT;
+	process.env.PI_QUESTIONNAIRE_TYPED_TEXT = value;
+	try {
+		return await fn();
+	} finally {
+		if (previous === undefined) delete process.env.PI_QUESTIONNAIRE_TYPED_TEXT;
+		else process.env.PI_QUESTIONNAIRE_TYPED_TEXT = previous;
+	}
+}
+
+test("a host that cannot type is offered 'Answer this in chat' instead of a dead-end prompt", async () => {
+	// pi-acp cancels input/editor UI requests, so a text prompt here would end as
+	// a silent dismissal. The row becomes a selection that hands back to the model.
+	const host = dialogHost({ select: ["Answer this in chat"] });
+	const result = await withTypedText("0", () => run(host.ctx));
+
+	assert.notEqual(result.isError, true);
+	assert.equal(result.details?.cancelled, false);
+	assert.doesNotMatch(text(result), /dismissed/i);
+	assert.match(text(result), /in their own words in chat/i);
+	assert.match(text(result), /plain text/i);
+	// No text dialog was ever requested, because the host would have cancelled it.
+	assert.deepEqual(host.seen.input, []);
+	assert.equal(host.seen.select?.[0], "Answer this in chat");
+});
+
+test("answering one question in chat keeps the answers already collected", async () => {
+	const two = [
+		{ id: "scope", label: "Scope", prompt: "Which scope?", options: [{ value: "small", label: "Small" }] },
+		{ id: "speed", label: "Speed", prompt: "How fast?", options: [{ value: "fast", label: "Fast" }] },
+	];
+	const host = dialogHost({ select: ["1. Small", "Answer this in chat"] });
+	const result = await withTypedText("0", () =>
+		registeredTool().execute("call", { questions: two }, undefined, undefined, host.ctx),
+	);
+
+	assert.notEqual(result.isError, true);
+	assert.equal(result.details?.cancelled, false);
+	assert.match(text(result), /Speed/);
+	assert.match(text(result), /Scope: user selected: 1\. Small/);
+});
+
+test("a host that can type still gets the 'Type your own answer' prompt", async () => {
+	const host = dialogHost({ select: ["Type your own answer"], input: ["A medium one"] });
+	const result = await withTypedText("1", () => run(host.ctx));
+
+	assert.notEqual(result.isError, true);
+	assert.match(text(result), /Scope: user wrote: A medium one/);
+	assert.deepEqual(host.seen.input, ["A medium one"]);
+});
