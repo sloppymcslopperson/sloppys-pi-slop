@@ -218,7 +218,7 @@ function isReadOnlySegment(segment: string): boolean {
 }
 
 /**
- * Conservative read-only shell policy used by agent mode. Commands are split on
+ * Conservative read-only shell policy used by planner mode. Commands are split on
  * pipes and every segment must be an allowlisted inspection command. Chaining,
  * substitution, redirection, and unknown commands are rejected.
  */
@@ -231,7 +231,7 @@ export function bashIsReadOnly(command: string): boolean {
 }
 
 /**
- * Decide whether a tool call violates agent mode. Returns a model-facing reason
+ * Decide whether a tool call violates planner mode. Returns a model-facing reason
  * when the call must be blocked, or undefined when it may run.
  */
 export function agentModeBlockReason(
@@ -241,32 +241,32 @@ export function agentModeBlockReason(
 	cwd: string,
 ): string | undefined {
 	if (toolName === "fit_init") {
-		return "Agent mode blocks fit_init because it writes AGENTS.md, AGENT_SPEC.md, and possibly .gitignore outside the FIT board. Run /fit init yourself first.";
+		return "Planner mode blocks fit_init because it writes AGENTS.md, AGENT_SPEC.md, and possibly .gitignore outside the FIT board. Run /fit init yourself first.";
 	}
 
 	if (toolName === "write" || toolName === "edit") {
 		const rawPath = input.path;
 		if (typeof rawPath !== "string") {
-			return `Agent mode blocks ${toolName} without a resolvable path.`;
+			return `Planner mode blocks ${toolName} without a resolvable path.`;
 		}
 		const target = rawPath.startsWith("@") ? rawPath.slice(1) : rawPath;
 		const absolute = isAbsolute(target) ? target : resolve(cwd, target);
 		if (!isInside(board, absolute)) {
-			return `Agent mode is read-only outside the FIT board. Use fit_* tools for ticket changes; ${toolName} was blocked for ${absolute}.`;
+			return `Planner mode is read-only outside the FIT board. Use fit_* tools for ticket changes; ${toolName} was blocked for ${absolute}.`;
 		}
-		return `Agent mode requires fit_* tools for board changes; direct ${toolName} on ${absolute} is blocked.`;
+		return `Planner mode requires fit_* tools for board changes; direct ${toolName} on ${absolute} is blocked.`;
 	}
 
 	if (toolName === "bash") {
 		const command = input.command;
 		if (typeof command !== "string" || !bashIsReadOnly(command)) {
-			return "Agent mode only allows read-only shell commands. Use the fit_* tools for board changes, or /fit agent off to restore full access.";
+			return "Planner mode only allows read-only shell commands. Use the fit_* tools for board changes, or /fit planner off to restore full access.";
 		}
 		return undefined;
 	}
 
 	if (toolName === "powershell") {
-		return "Agent mode does not allow PowerShell. Use read-only shell commands or the fit_* tools.";
+		return "Planner mode does not allow PowerShell. Use read-only shell commands or the fit_* tools.";
 	}
 
 	return undefined;

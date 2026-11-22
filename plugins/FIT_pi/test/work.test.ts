@@ -7,6 +7,7 @@ import {
 	BATCH_GRILL_INSTRUCTION,
 	buildPlanLegMessage,
 	buildRunMessage,
+	classifyPlannerCommand,
 	parsePlanLegFlags,
 	parseWorkRunFlags,
 	selectWorkQueue,
@@ -139,7 +140,33 @@ describe("work queue selection", () => {
 	});
 });
 
-describe("plan-a-leg flags and prompt", () => {
+describe("planner command routing", () => {
+	it("maps planner and plan to mode or leg", () => {
+		assert.equal(classifyPlannerCommand("planner", []), "mode");
+		assert.equal(classifyPlannerCommand("planner", ["on"]), "mode");
+		assert.equal(classifyPlannerCommand("planner", ["leg"]), "leg");
+		assert.equal(
+			classifyPlannerCommand("planner", ["leg", "nogrill", "fix"]),
+			"leg",
+		);
+		assert.equal(classifyPlannerCommand("plan", []), "mode");
+		assert.equal(classifyPlannerCommand("plan", ["leg"]), "leg");
+	});
+
+	it("keeps the old command names as hidden aliases", () => {
+		assert.equal(classifyPlannerCommand("agent", []), "mode");
+		assert.equal(classifyPlannerCommand("mode", ["status"]), "mode");
+		assert.equal(classifyPlannerCommand("agent", ["leg"]), "leg");
+		assert.equal(classifyPlannerCommand("plan-a-leg", []), "leg");
+	});
+
+	it("ignores unrelated commands", () => {
+		assert.equal(classifyPlannerCommand("list", []), undefined);
+		assert.equal(classifyPlannerCommand("work", ["leg"]), undefined);
+	});
+});
+
+describe("planner leg flags and prompt", () => {
 	it("parses only nogrill and keeps the rest as text", () => {
 		assert.deepEqual(parsePlanLegFlags([]), { nogrill: undefined, rest: [] });
 		assert.deepEqual(parsePlanLegFlags(["nogrill", "fix", "the", "typo"]), {

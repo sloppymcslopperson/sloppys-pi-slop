@@ -9,7 +9,7 @@ import {
 	lateAgentModeReminder,
 } from "../src/prompt.ts";
 
-describe("agent-mode planning prompt", () => {
+describe("planner-mode planning prompt", () => {
 	it("asks for a short, human-executable plan in chat", () => {
 		assert.match(AGENT_MODE_PLAN_INSTRUCTION, /Present the plan in your reply/);
 		assert.match(AGENT_MODE_PLAN_INSTRUCTION, /numbered steps/);
@@ -24,7 +24,7 @@ describe("agent-mode planning prompt", () => {
 		assert.match(AGENT_MODE_PLAN_INSTRUCTION, /do not move or close the ticket/);
 		assert.match(
 			AGENT_MODE_PLAN_INSTRUCTION,
-			/turn agent mode off and explicitly confirm/,
+			/turn planner mode off and explicitly confirm/,
 		);
 	});
 
@@ -34,7 +34,7 @@ describe("agent-mode planning prompt", () => {
 	});
 });
 
-describe("plan-a-leg prompt", () => {
+describe("planner leg prompt", () => {
 	it("asks for 2-7 implementation tickets plus a final review ticket", () => {
 		assert.match(PLAN_A_LEG_INSTRUCTION, /at least 2 and at most 7 implementation tickets/);
 		assert.match(PLAN_A_LEG_INSTRUCTION, /final review ticket/);
@@ -71,7 +71,8 @@ describe("plan-a-leg prompt", () => {
 	});
 });
 
-describe("late agent-mode activation reminder", () => {	it("fires only on an explicit off -> on transition", () => {
+describe("late planner-mode activation reminder", () => {
+	it("fires only on an explicit off -> on transition", () => {
 		assert.equal(lateAgentModeReminder(false, true, "on"), LATE_AGENT_MODE_REMINDER);
 		assert.equal(lateAgentModeReminder(false, true, "toggle"), LATE_AGENT_MODE_REMINDER);
 		assert.equal(lateAgentModeReminder(true, true, "on"), undefined);
@@ -88,6 +89,6 @@ describe("late agent-mode activation reminder", () => {	it("fires only on an exp
 		assert.match(LATE_AGENT_MODE_REMINDER, /plan it and show the plan/);
 		assert.match(LATE_AGENT_MODE_REMINDER, /Do not create tickets/);
 		assert.match(LATE_AGENT_MODE_REMINDER, /Do not start implementing/);
-		assert.match(LATE_AGENT_MODE_REMINDER, /turn agent mode off and explicitly confirm/);
+		assert.match(LATE_AGENT_MODE_REMINDER, /turn planner mode off and explicitly confirm/);
 	});
 });

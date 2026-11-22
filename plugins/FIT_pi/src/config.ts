@@ -65,6 +65,8 @@ export function parseAutocommitToken(value: string | undefined): boolean | undef
 }
 
 const AGENT_MODE_TOKENS = new Set([
+	"planner",
+	"plan",
 	"agent",
 	"on",
 	"true",
@@ -81,10 +83,11 @@ const NORMAL_ACCESS_TOKENS = new Set([
 	"no",
 	"normal",
 	"none",
+	"--no-plan",
 	"--no-agent",
 ]);
 
-/** Parse an agent-mode token. Returns undefined when the token is not recognized. */
+/** Parse a planner-mode token. Returns undefined when the token is not recognized. */
 export function parseAgentModeToken(value: string | undefined): boolean | undefined {
 	if (value === undefined) return undefined;
 	const token = value.trim().toLowerCase();
@@ -97,7 +100,7 @@ export function parseAgentModeToken(value: string | undefined): boolean | undefi
 export type AgentModeAction = "toggle" | "on" | "off" | "status";
 
 /**
- * Parse a `/fit agent` argument into a mode action. An omitted argument means
+ * Parse a `/fit planner` argument into a mode action. An omitted argument means
  * toggle; unknown arguments return undefined.
  */
 export function parseAgentModeAction(value: string | undefined): AgentModeAction | undefined {
@@ -120,8 +123,8 @@ export function nextAgentMode(current: boolean, action: AgentModeAction): boolea
 }
 
 /**
- * Resolve the configured agent-mode default. An explicit CLI flag wins over the
- * environment, and the environment wins over the built-in `false` default.
+ * Resolve the configured planner-mode default. An explicit CLI flag wins over
+ * the environment, and the environment wins over the built-in `false` default.
  */
 export function resolveAgentMode(
 	flagValue: boolean | string | undefined,

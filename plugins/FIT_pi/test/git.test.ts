@@ -112,9 +112,13 @@ describe("move board aside", () => {
 		const gitDir = join(dirname(board), "git-dir");
 		await mkdir(gitDir, { recursive: true });
 		const attempts: string[] = [];
-		const crossDevice = async (from: string, to: string): Promise<void> => {
-			attempts.push(to);
-			if (dirname(to) === gitDir) {
+		const crossDevice = async (
+			from: Parameters<typeof rename>[0],
+			to: Parameters<typeof rename>[1],
+		): Promise<void> => {
+			const target = to.toString();
+			attempts.push(target);
+			if (dirname(target) === gitDir) {
 				throw Object.assign(
 					new Error("EXDEV: cross-device link not permitted"),
 					{ code: "EXDEV" },

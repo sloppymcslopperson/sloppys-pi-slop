@@ -169,14 +169,14 @@ describe("human list formatting", () => {
 		assert.match(empty, /No tickets yet\./);
 	});
 
-	it("shows agent mode in the header only when enabled", () => {
+	it("shows planner mode in the header only when enabled", () => {
 		const tickets = [ticket("open/03-fix-typo.md", "Fix typo.")];
 		const enabled = formatList("/board/fit", basicMode, tickets, tickets, counts, {
 			agentMode: true,
 		});
 		const disabled = formatList("/board/fit", basicMode, tickets, tickets, counts);
 
-		assert.match(enabled, /Agent mode: on \(FIT-only\)/);
-		assert.ok(!disabled.includes("Agent mode:"));
+		assert.match(enabled, /Planner mode: on \(FIT-only\)/);
+		assert.ok(!disabled.includes("Planner mode:"));
 	});
 });

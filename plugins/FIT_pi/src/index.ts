@@ -216,9 +216,25 @@ interface PlanLegFlags {
 	rest: string[];
 }
 
+export type PlannerCommandKind = "mode" | "leg";
+
 /**
- * Parse leading `nogrill` tokens for /fit plan-a-leg. There is deliberately no
- * review or autocommit flag: the command only plans, it never implements.
+ * Classify a `/fit` subcommand as a planner-mode action or a leg split.
+ * `planner` and `plan` are canonical; `agent`, `mode`, and `plan-a-leg` are
+ * hidden compatibility aliases.
+ */
+export function classifyPlannerCommand(
+	command: string,
+	rest: string[],
+): PlannerCommandKind | undefined {
+	if (command === "plan-a-leg") return "leg";
+	if (!["planner", "plan", "agent", "mode"].includes(command)) return undefined;
+	return rest[0]?.toLowerCase() === "leg" ? "leg" : "mode";
+}
+
+/**
+ * Parse leading `nogrill` tokens for /fit planner leg. There is deliberately
+ * no review or autocommit flag: the command only plans, it never implements.
  */
 export function parsePlanLegFlags(args: string[]): PlanLegFlags {
 	const parsed: PlanLegFlags = { nogrill: undefined, rest: [] };
@@ -229,9 +245,9 @@ export function parsePlanLegFlags(args: string[]): PlanLegFlags {
 			if (nogrill !== undefined) {
 				if (parsed.nogrill !== undefined) {
 					throw duplicateFlag(
-						"plan-a-leg",
+						"planner leg",
 						arg,
-						"/fit plan-a-leg [nogrill] [query|text]",
+						"/fit planner leg [nogrill] [query|text]",
 					);
 				}
 				parsed.nogrill = nogrill;
@@ -499,7 +515,7 @@ export function formatList(
 		`Tickets: ${all.length} total · ${formatCounts(counts)}`,
 	];
 	if (options.filter) lines.push(`Filter: ${options.filter}`);
-	if (options.agentMode) lines.push("Agent mode: on (FIT-only)");
+	if (options.agentMode) lines.push("Planner mode: on (FIT-only)");
 
 	if (listed.length === 0) {
 		lines.push("", all.length === 0 ? "No tickets yet." : "No tickets match this view.");
@@ -882,7 +898,7 @@ function finishInstruction(review: boolean, planOnly = false): string {
 		? "Review mode is ON. Do not move this ticket to closed. When the work is done, re-read it with fit_show, update the body/frontmatter with a short summary if useful, and leave it in in_progress for human review. Ask the user to review it and let a human close it."
 		: "When finished, re-read it with fit_show, then call fit_move with status \"closed\" and the latest expectedRevision.";
 	if (!planOnly) return finish;
-	return `Do not move or close this ticket while planning. After the user turns agent mode off and confirms, execute the plan. ${finish}`;
+	return `Do not move or close this ticket while planning. After the user turns planner mode off and confirms, execute the plan. ${finish}`;
 }
 
 function buildTicketPrompt(
@@ -924,7 +940,7 @@ function buildWorkMessage(
 	);
 }
 
-/** Build the prompt for a `/fit plan-a-leg` split. */
+/** Build the prompt for a `/fit planner leg` split. */
 export function buildPlanLegMessage(
 	ticket: Ticket,
 	board: string,
@@ -938,7 +954,7 @@ export function buildPlanLegMessage(
 	];
 	if (createdFromText) {
 		heading.push(
-			`The /fit plan-a-leg command created ${createdId ?? ticket.id} as the umbrella.`,
+			`The /fit planner leg command created ${createdId ?? ticket.id} as the umbrella.`,
 		);
 	}
 	const lines = [
@@ -955,7 +971,7 @@ export function buildPlanLegMessage(
 	lines.push(
 		PLAN_A_LEG_INSTRUCTION,
 		"",
-		"Do not implement anything. The user will turn agent mode off and run /fit work N when ready.",
+		"Do not implement anything. The user will turn planner mode off and run /fit work N when ready.",
 		TICKET_EDIT_GUARDRAIL,
 	);
 	return lines.join("\n");
@@ -1064,15 +1080,15 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Omit the clarifying-questions guidance from /fit work and /fit start prompts (default: false; env: FIT_NOGRILL)",
 	});
-	pi.registerFlag("fit-agent", {
+	pi.registerFlag("fit-plan", {
 		type: "boolean",
 		description:
-			"Agent mode: read-only outside the FIT board; board changes use fit_* tools and shell commands must be read-only (env: FIT_AGENT)",
+			"Planner mode: read-only outside the FIT board; board changes use fit_* tools and shell commands must be read-only (env: FIT_PLAN)",
 	});
 
-	// Agent mode narrows the agent to read-only work outside the board and
+	// Planner mode narrows the agent to read-only work outside the board and
 	// requires the fit_* tools for board changes. The FIT guard below still
-	// applies when agent mode is off.
+	// applies when planner mode is off.
 	//
 	// The FIT tools are the only sanctioned mutation path for the board. Block
 	// the two built-in tools that could otherwise corrupt a ticket silently.
@@ -1124,7 +1140,7 @@ export default function (pi: ExtensionAPI) {
 			(event.reason === "startup" || event.reason === "reload")
 		) {
 			ctx.ui.notify(
-				"Agent mode is on: read-only outside the FIT board. Use fit_* tools for board changes.",
+				"Planner mode is on: read-only outside the FIT board. This session is for planning FIT tickets; use fit_* tools for board changes.",
 				"warning",
 			);
 		}
@@ -1143,8 +1159,8 @@ export default function (pi: ExtensionAPI) {
 		const board = resolveBoard(configuredBoard(pi), ctx.cwd);
 		return {
 			message: {
-				customType: "fit-agent-mode",
-				content: `Agent mode is active: read-only outside the FIT board. Use fit_* tools for board changes and only read-only shell commands. Board: ${board}`,
+				customType: "fit-planner-mode",
+				content: `Planner mode is active: read-only outside the FIT board. This session is for planning FIT tickets; use fit_* tools for board changes and only read-only shell commands. Board: ${board}`,
 				display: true,
 			},
 		};
@@ -1857,10 +1873,12 @@ export default function (pi: ExtensionAPI) {
 	// Human command: fuzzy matching is allowed here only.
 	// -------------------------------------------------------------------------
 
+	let fitCommandHandler: (args: string, ctx: ExtensionContext) => Promise<void>;
+
 	pi.registerCommand("fit", {
 		description:
-			"Browse/edit a FIT board. Run /fit help for sub-commands and arguments. Run /fit check for a literal fit check. Human-only fuzzy lookup: /fit agent [on|off|status], /fit init, /fit show [text], /fit edit [local] [query], /fit archive [text], /fit close [text], /fit move <text> <status>, /fit priority <text> <0-99>, /fit work [N] [review] [nogrill] [autocommit], /fit new|add <status> <priority> <text>, /fit start [review] [nogrill] <text>, /fit plan-a-leg [nogrill] [query|text], /fit check, /fit check cleanup [max] [dry-run], /fit git, /fit list [status]",
-		handler: async (args, ctx) => {
+			"Browse/edit a FIT board. Run /fit help for sub-commands and arguments. Run /fit check for a literal fit check. Human-only fuzzy lookup: /fit planner [on|off|status], /fit planner leg [nogrill] [query|text] (alias plan), /fit init, /fit show [text], /fit edit [local] [query], /fit archive [text], /fit close [text], /fit move <text> <status>, /fit priority <text> <0-99>, /fit work [N] [review] [nogrill] [autocommit], /fit new|add <status> <priority> <text>, /fit start [review] [nogrill] <text>, /fit check, /fit check cleanup [max] [dry-run], /fit git, /fit list [status]",
+		handler: (fitCommandHandler = async (args, ctx) => {
 			const board = resolveBoard(configuredBoard(pi), ctx.cwd);
 			const input = args.trim();
 			const [command = "list", ...rest] = input.split(/\s+/).filter(Boolean);
@@ -1906,20 +1924,26 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
-				if (command === "agent" || command === "mode") {
+				const plannerKind = classifyPlannerCommand(command, rest);
+
+				if (plannerKind === "mode") {
 					if (rest.length > 1) {
 						throw new FitError(
 							"INVALID_ARGUMENTS",
-							`Unknown /fit agent argument: ${rest.slice(1).join(" ")}`,
-							{ hint: "Usage: /fit agent [on|off|status]" },
+							`Unknown /fit planner argument: ${rest.slice(1).join(" ")}`,
+							{
+								hint: "Usage: /fit planner [on|off|status] | /fit planner leg [nogrill] [query|text]",
+							},
 						);
 					}
 					const action = parseAgentModeAction(rest[0]);
 					if (!action) {
 						throw new FitError(
 							"INVALID_ARGUMENTS",
-							`Unknown /fit agent action: ${rest[0]}`,
-							{ hint: "Usage: /fit agent [on|off|status]" },
+							`Unknown /fit planner action: ${rest[0]}`,
+							{
+								hint: "Usage: /fit planner [on|off|status] | /fit planner leg [nogrill] [query|text]",
+							},
 						);
 					}
 					applyAgentModeAction(pi, ctx, action);
@@ -2309,8 +2333,8 @@ export default function (pi: ExtensionAPI) {
 						if (planOnly) {
 							throw new FitError(
 								"INVALID_ARGUMENTS",
-								"Agent mode is plan-only and cannot run /fit work with an explicit ticket count or autocommit.",
-								{ hint: "Turn agent mode off, or use plain /fit work for one ticket." },
+								"Planner mode is plan-only and cannot run /fit work with an explicit ticket count or autocommit.",
+								{ hint: "Turn planner mode off, or use plain /fit work for one ticket." },
 							);
 						}
 
@@ -2453,8 +2477,9 @@ export default function (pi: ExtensionAPI) {
 					return;
 				}
 
-				if (command === "plan-a-leg") {
-					const flags = parsePlanLegFlags(rest);
+				if (plannerKind === "leg") {
+					const legArgs = command === "plan-a-leg" ? rest : rest.slice(1);
+					const flags = parsePlanLegFlags(legArgs);
 					const content = flags.rest.join(" ");
 					const grill = !(flags.nogrill ?? configuredNogrill(pi));
 					const all = await listTickets(board);
@@ -2476,7 +2501,7 @@ export default function (pi: ExtensionAPI) {
 							if (!selected) return;
 							if (!ctx.hasUI) {
 								ctx.ui.notify(
-									`Text matches ${selected.id}. Run /fit plan-a-leg with no text to use the current ticket, or rerun interactively to choose between that ticket and a new one.`,
+									`Text matches ${selected.id}. Run /fit planner leg with no text to use the current ticket, or rerun interactively to choose between that ticket and a new one.`,
 									"warning",
 								);
 								return;
@@ -2505,7 +2530,7 @@ export default function (pi: ExtensionAPI) {
 							throw new FitError(
 								"NO_IN_PROGRESS",
 								"No ticket is in_progress. Pass text to plan a new leg or match an existing ticket.",
-								{ hint: "Usage: /fit plan-a-leg [nogrill] [query|text]" },
+								{ hint: "Usage: /fit planner leg [nogrill] [query|text]" },
 							);
 						}
 						const selected = await selectTicket(
@@ -2518,14 +2543,14 @@ export default function (pi: ExtensionAPI) {
 						ticket = await readTicket(board, selected.id);
 					}
 
-					// This command is deliberately more than agent mode: it turns
+					// This command is deliberately more than planner mode: it turns
 					// the mode on and then owns the leg-splitting prompt.
 					setAgentMode(true);
 					applyAgentModeUi(pi, ctx);
 
 					const legStatus = `open${ticket.subdir ? `/${ticket.subdir}` : ""}`;
 					ctx.ui.notify(
-						`${createdFromText ? `Created ${ticket.id}; ` : ""}Agent mode is on; planning a leg from ${ticket.id} into ${legStatus} tickets.`,
+						`${createdFromText ? `Created ${ticket.id}; ` : ""}Planner mode is on; planning a leg from ${ticket.id} into ${legStatus} tickets.`,
 						"warning",
 					);
 					pi.sendUserMessage(
@@ -2620,11 +2645,21 @@ export default function (pi: ExtensionAPI) {
 			} finally {
 				await refreshInProgressStatus(pi, ctx);
 			}
-		},
+		}),
+	});
+
+	// Hidden typo alias: "/fir" is deliberately not registered as a command, so
+	// it never appears in command autocomplete. The input hook forwards it to
+	// the same handler as /fit. iOS keyboards often turn the "t" into an "r".
+	pi.on("input", async (event, ctx) => {
+		const match = /^\s*\/fir(?=\s|$)([\s\S]*)$/.exec(event.text);
+		if (!match) return { action: "continue" };
+		await fitCommandHandler(match[1].trimStart(), ctx);
+		return { action: "handled" };
 	});
 
 	pi.registerShortcut(Key.ctrlShift("a"), {
-		description: "Toggle FIT agent mode",
+		description: "Toggle FIT planner mode",
 		handler: async (ctx) => {
 			applyAgentModeAction(pi, ctx, "toggle");
 		},
@@ -2639,9 +2674,10 @@ function fitHelp(board: string): string {
 		"Commands:",
 		"  /fit, /fit list [prefix]             Counts and tickets; prefix filters ids.",
 		"",
-		"  /fit agent [on|off|status]           Toggle read-only agent mode; only board changes via fit_* are allowed.",
+		"  /fit planner [on|off|status]         Toggle read-only planner mode; only FIT board changes via fit_* are allowed. Alias: plan",
+		"      Planner mode is only for planning FIT tickets; shell commands stay read-only.",
 		"",
-		"  Ctrl+Shift+A                         Toggle agent mode without typing /fit agent.",
+		"  Ctrl+Shift+A                         Toggle planner mode without typing /fit planner.",
 		"",
 		"  /fit show [query]                    Show a ticket; no query shows the current one.",
 		"",
@@ -2658,13 +2694,13 @@ function fitHelp(board: string): string {
 		"",
 		"  /fit work [N] [review] [nogrill] [autocommit]  Work on current ticket, or run N tickets autonomously. Alias: w",
 		"      N: fixed queue of in_progress then open tickets; asks to fill from backlog only when empty.",
-		"      N>1 rejects review and agent mode. autocommit commits each ticket before closing it.",
+		"      N>1 rejects review and planner mode. autocommit commits each ticket before closing it.",
 		"",
 		"  /fit new [status] [priority] <text>  Create a ticket with priority 00-99. Alias: add",
 		"",
 		"  /fit start [review] [nogrill] <text> Create, start, and hand off to the agent.",
 		"",
-		"  /fit plan-a-leg [nogrill] [query|text]  Turn on agent mode; split a ticket into 2-7 open tickets plus a final review ticket, then stop.",
+		"  /fit planner leg [nogrill] [query|text]  Turn on planner mode; split a ticket into 2-7 open tickets plus a final review ticket, then stop.",
 		"      No text uses the current ticket. Text matches an existing ticket, or creates a new umbrella when none matches.",
 		"",
 		"  /fit check [cleanup|migrate|normalize] [args] Validate; cleanup names, report migration, normalize bodies.",
@@ -2676,7 +2712,7 @@ function fitHelp(board: string): string {
 		"  /fit help                            This message. Aliases: --help, -h, ?",
 		"",
 		"Flags: review stops for human review; nogrill skips clarifying questions; autocommit commits each ticket.",
-		"Defaults: --fit-review/FIT_REVIEW, --fit-nogrill/FIT_NOGRILL, --fit-agent/FIT_AGENT.",
+		"Defaults: --fit-review/FIT_REVIEW, --fit-nogrill/FIT_NOGRILL, --fit-plan/FIT_PLAN.",
 		"Statuses: open, in_progress, backlog, closed.",
 		"Queries are fuzzy for humans; agents use exact-id fit_* tools.",
 	].join("\n");
@@ -2694,7 +2730,7 @@ let agentModeFooterActive = false;
 function agentModeEnabled(pi: ExtensionAPI): boolean {
 	return (
 		agentModeOverride ??
-		resolveAgentMode(pi.getFlag("fit-agent"), process.env.FIT_AGENT)
+		resolveAgentMode(pi.getFlag("fit-plan"), process.env.FIT_PLAN)
 	);
 }
 
@@ -2795,12 +2831,12 @@ function setAgentModeFooter(ctx: ExtensionContext): void {
 
 function applyAgentModeUi(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	if (agentModeEnabled(pi)) {
-		ctx.ui.setStatus("fit-agent", "agent: FIT-only mode (ctrl+shift+a)");
+		ctx.ui.setStatus("fit-plan", "planner: FIT-only mode (ctrl+shift+a)");
 		if (ctx.mode === "tui") setAgentModeFooter(ctx);
 		return;
 	}
 
-	ctx.ui.setStatus("fit-agent", undefined);
+	ctx.ui.setStatus("fit-plan", undefined);
 	if (agentModeFooterActive) {
 		ctx.ui.setFooter(undefined);
 		agentModeFooterActive = false;
@@ -2846,8 +2882,8 @@ function applyAgentModeAction(
 	const board = resolveBoard(configuredBoard(pi), ctx.cwd);
 	ctx.ui.notify(
 		enabled
-			? `Agent mode is on. Mutations are limited to the FIT board through fit_* tools; shell commands must be read-only.\nBoard: ${board}`
-			: "Agent mode is off. Normal tool access restored.",
+			? `Planner mode is on. This session is for planning FIT tickets; mutations are limited to the FIT board through fit_* tools and shell commands must be read-only.\nBoard: ${board}`
+			: "Planner mode is off. Normal tool access restored.",
 		enabled ? "warning" : "info",
 	);
 	const reminder = lateAgentModeReminder(previous, enabled, action);

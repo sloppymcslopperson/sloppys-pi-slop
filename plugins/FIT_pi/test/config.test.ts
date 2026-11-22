@@ -79,12 +79,12 @@ describe("autocommit configuration", () => {
 	});
 });
 
-describe("agent mode configuration", () => {
+describe("planner mode configuration", () => {
 	it("parses on and off tokens", () => {
-		for (const token of ["agent", "ON", "true", "1", "yes", "readonly", "read-only"]) {
+		for (const token of ["planner", "plan", "agent", "ON", "true", "1", "yes", "readonly", "read-only"]) {
 			assert.equal(parseAgentModeToken(token), true, token);
 		}
-		for (const token of ["off", "FALSE", "0", "no", "normal", "none", "--no-agent"]) {
+		for (const token of ["off", "FALSE", "0", "no", "normal", "none", "--no-plan", "--no-agent"]) {
 			assert.equal(parseAgentModeToken(token), false, token);
 		}
 		assert.equal(parseAgentModeToken(undefined), undefined);
@@ -108,7 +108,7 @@ describe("agent mode configuration", () => {
 	});
 });
 
-describe("agent mode actions", () => {
+describe("planner mode actions", () => {
 	it("parses toggle, on, off, and status actions", () => {
 		assert.equal(parseAgentModeAction(undefined), "toggle");
 		assert.equal(parseAgentModeAction(""), "toggle");

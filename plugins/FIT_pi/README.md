@@ -206,21 +206,23 @@ FIT_GUARD=0 pi -e ./src/index.ts
 The shell guard is heuristic. It blocks commands that both mention the board and
 look like mutations; it does not sandbox arbitrary shell code.
 
-### Agent mode
+### Planner mode
 
-Agent mode makes the agent read-only everywhere except the FIT board. Use it
-when the agent should work tickets without touching application code:
+Planner mode makes the agent read-only everywhere except the FIT board. Use it
+when the session should focus on planning FIT tickets without touching
+application code:
 
 ```bash
-pi --fit-agent -e ./src/index.ts
-FIT_AGENT=1 pi -e ./src/index.ts
+pi --fit-plan -e ./src/index.ts
+FIT_PLAN=1 pi -e ./src/index.ts
 ```
 
-Toggle it during a session with `/fit agent` (`/fit agent on`, `/fit agent off`,
-or `/fit agent status`), or press `Ctrl+Shift+A`. In agent mode:
+Toggle it during a session with `/fit planner` (`/fit planner on`,
+`/fit planner off`, or `/fit planner status`), or press `Ctrl+Shift+A`.
+`/fit plan` is an alias for `/fit planner`. In planner mode:
 
-- The footer shows `agent: FIT-only mode`, uses a warning-colored footer, and
-  `/fit` / `/fit list` add an `Agent mode: on (FIT-only)` header line.
+- The footer shows `planner: FIT-only mode`, uses a warning-colored footer, and
+  `/fit` / `/fit list` add a `Planner mode: on (FIT-only)` header line.
 - Startup shows a one-time notice, and each agent run gets a visible reminder
   that the board is the only writable area.
 - `write` and `edit` are blocked everywhere, including board files; board
@@ -240,10 +242,10 @@ or `/fit agent status`), or press `Ctrl+Shift+A`. In agent mode:
 - `/fit work` and `/fit start` become plan-first: the agent finishes grilling,
   records the answers and `grilled: true` in the ticket, presents a short
   human-readable plan in chat, and stops. It does not create tickets for the
-  plan or start implementing until you turn agent mode off and confirm.
-- `/fit plan-a-leg` is the deliberate split path: it turns agent mode on, plans
-  a short sequence of open tickets, and stops. See [Planning a leg](#planning-a-leg).
-- Turning agent mode on mid-session (with `/fit agent on`, `/fit agent`, or
+  plan or start implementing until you turn planner mode off and confirm.
+- `/fit planner leg` is the deliberate split path: it turns planner mode on,
+  plans a short sequence of open tickets, and stops. See [Planning a leg](#planning-a-leg).
+- Turning planner mode on mid-session (with `/fit planner on`, `/fit planner`, or
   `Ctrl+Shift+A`) sends the agent a generic reminder to plan before acting and
   wait for confirmation, even if the work command already ran.
 
@@ -424,7 +426,7 @@ one.
 | Command | What it does |
 | --- | --- |
 | `/fit` or `/fit list [prefix]` | Show board counts and the first 100 tickets |
-| `/fit agent [on\|off\|status]` | Toggle agent mode: read-only outside the board, read-only shell commands |
+| `/fit planner [on\|off\|status]` | Toggle planner mode: read-only outside the board, read-only shell commands; alias `/fit plan` |
 | `/fit show [query]` | Show a matching ticket, or the current `in_progress` ticket when no query is given |
 | `/fit edit [local] [query]` | Open a ticket in your default editor or VS Code; `local` uses Pi's multiline editor |
 | `/fit archive [query]` | Archive a closed ticket after confirmation |
@@ -433,8 +435,8 @@ one.
 | `/fit priority <query> <0-99>` | Change a ticket's filename priority; alias `/fit pri` |
 | `/fit work [N] [review] [nogrill] [autocommit]` | Ask the agent to work on the current ticket, or run a fixed queue of N tickets autonomously; asks before filling an empty queue from `backlog` |
 | `/fit new\|add [status] [priority] <text>` | Create a ticket |
-| `/fit start [review] [nogrill] <text>` | Create a priority-0 ticket, start it, and prompt the agent; plan-first in agent mode |
-| `/fit plan-a-leg [nogrill] [query\|text]` | Turn on agent mode and split a ticket into 2-7 open implementation tickets plus a final architecture review ticket; stops without implementing |
+| `/fit start [review] [nogrill] <text>` | Create a priority-0 ticket, start it, and prompt the agent; plan-first in planner mode |
+| `/fit planner leg [nogrill] [query\|text]` | Turn on planner mode and split a ticket into 2-7 open implementation tickets plus a final architecture review ticket; stops without implementing |
 | `/fit init [strict] [refresh] [git]` | Create the board, specs, and `AGENTS.md` section; `git` uses a `fit` branch worktree, plain init is inline |
 | `/fit check [cleanup [max] [dry-run]] [migrate] [normalize [dry-run]]` | Validate the board; cleanup long names, report migrations, or normalize bodies |
 | `/fit git` | Stamp closed tickets with the parent commit and commit the board |
@@ -469,7 +471,7 @@ create follow-up tickets, or stop entirely. New tickets are never added to the
 current fixed queue.
 
 `review` is rejected when N is greater than 1, because each ticket must close
-before the next can start. Agent mode is plan-only, so `/fit work <N>` and any
+before the next can start. Planner mode is plan-only, so `/fit work <N>` and any
 autocommit run are rejected there too. `/fit start` does not support batch runs.
 
 ```text
@@ -503,14 +505,14 @@ The prompt tells the agent to grill the user with exhaustive clarifying
 questions when any detail is unclear, and to offer splitting the work into
 follow-up tickets when it turns out larger than expected.
 
-With agent mode on, both commands switch to planning first. The agent records
+With planner mode on, both commands switch to planning first. The agent records
 any grilling answers in the ticket, then presents a concise plan with numbered
 steps, files or areas, verification/tests, and risks or open questions. It stops
-there and waits for agent mode to be turned off and for you to confirm before
+there and waits for planner mode to be turned off and for you to confirm before
 executing the plan. The plan stays in chat; it is not written to the ticket or
 split into new tickets unless the scope grows and you approve it.
 
-If you turn agent mode on after the command already ran, Pi sends a generic
+If you turn planner mode on after the command already ran, Pi sends a generic
 reminder to plan, display the plan, and wait for that same confirmation.
 
 `/fit start` is the one-shot version of "create a ticket, start it, and tell the
@@ -519,9 +521,9 @@ agent to work." It always creates in `open`, then moves the ticket to
 
 ### Planning a leg
 
-`/fit plan-a-leg [nogrill] [query|text]` is intentionally explicit: it turns
-agent mode on, then asks the agent to split one leg of work into small tickets.
-It is not an alias for agent mode or `/fit work`.
+`/fit planner leg [nogrill] [query|text]` is intentionally explicit: it turns
+planner mode on, then asks the agent to split one leg of work into small tickets.
+It is not an alias for planner mode or `/fit work`.
 
 - With no text it uses the current `in_progress` ticket. With text it
   fuzzy-matches existing non-closed tickets; when a match is found, the command
@@ -541,7 +543,7 @@ It is not an alias for agent mode or `/fit work`.
   gets its own grilling session later, so the planner avoids speculative detail.
 - The agent appends the ordered ticket ids to the umbrella body, closes the
   umbrella, presents the leg, and stops. It does not implement anything or move
-  a leg ticket to `in_progress`. Run `/fit work N` after turning agent mode off
+  a leg ticket to `in_progress`. Run `/fit work N` after turning planner mode off
   to execute the leg.
 - If the work fits in a single ticket, the agent says so and leaves the umbrella
   unchanged instead of splitting it.
