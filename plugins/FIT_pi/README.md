@@ -219,7 +219,10 @@ FIT_PLAN=1 pi -e ./src/index.ts
 
 Toggle it during a session with `/fit planner` (`/fit planner on`,
 `/fit planner off`, or `/fit planner status`), or press `Ctrl+Shift+A`.
-`/fit plan` is an alias for `/fit planner`. In planner mode:
+`/fit plan` is an alias for `/fit planner`. You can also enable planner mode
+and send a prompt in one step with `/fit planner <text>` or
+`/fit planner on <text>`; the prompt is sent immediately with the planner
+instructions. In planner mode:
 
 - The footer shows `planner: FIT-only mode`, uses a warning-colored footer, and
   `/fit` / `/fit list` add a `Planner mode: on (FIT-only)` header line.
@@ -248,6 +251,11 @@ Toggle it during a session with `/fit planner` (`/fit planner on`,
 - Turning planner mode on mid-session (with `/fit planner on`, `/fit planner`, or
   `Ctrl+Shift+A`) sends the agent a generic reminder to plan before acting and
   wait for confirmation, even if the work command already ran.
+- Turning planner mode on before the session's first prompt stays silent: no
+  agent turn starts. The planner instructions are attached to that first prompt
+  instead. If that prompt comes from `/fit work` or `/fit start`, they are
+  tailored to the ticket handoff. This also applies to `--fit-plan` / `FIT_PLAN`
+  startup.
 
 The shell allowlist is deliberately conservative. It is a guardrail, not an OS
 sandbox, so run untrusted agents in a real sandbox.
@@ -437,7 +445,7 @@ writes. Hosts without a panel keep the existing notification and picker behavior
 | Command | What it does |
 | --- | --- |
 | `/fit` or `/fit list [prefix]` | Show board counts and the first 100 tickets |
-| `/fit planner [on\|off\|status]` | Toggle planner mode: read-only outside the board, read-only shell commands; alias `/fit plan` |
+| `/fit planner [on\|off\|status] [text]` | Toggle planner mode: read-only outside the board, read-only shell commands; alias `/fit plan`; `<text>` enables and sends a prompt immediately |
 | `/fit show [query]` | Show a matching ticket, or the current `in_progress` ticket when no query is given |
 | `/fit edit [local] [query]` | Open a ticket in your default editor or VS Code; `local` uses Pi's multiline editor |
 | `/fit archive [query]` | Archive a closed ticket after confirmation |
@@ -468,7 +476,9 @@ priority, title, body, and dynamic key/value frontmatter rows to its data model.
 Add row appends a pair, each row has a remove control, and Create submits the
 same inputs as the text command. The title is the FIT slug: it is lowercased and
 hyphenated, checked against the 30-character short-name limit, and derived from
-the body until the user edits it. Frontmatter values infer simple booleans,
+the body until the user edits it. The live title field accepts uppercase and
+spaces while typing; the normalized slug is shown after a failed save and is
+always used when the ticket is created. Frontmatter values infer simple booleans,
 nulls, and numbers; everything else stays a string. Without a panel, bare
 `/fit new` keeps the existing missing-content usage error.
 

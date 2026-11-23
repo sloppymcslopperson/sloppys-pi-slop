@@ -75,9 +75,13 @@ import { fuzzyFind } from "./human.ts";
 import { formatInProgressStatus } from "./status.ts";
 import {
 	AGENT_MODE_PLAN_INSTRUCTION,
+	DEFERRED_TICKET_PLANNER_REMINDER,
+	LATE_AGENT_MODE_REMINDER,
 	PLAN_A_LEG_GRILL_INSTRUCTION,
 	PLAN_A_LEG_INSTRUCTION,
 	lateAgentModeReminder,
+	plannerPromptWithReminder,
+	shouldDeferAgentModeReminder,
 } from "./prompt.ts";
 import { agentModeBlockReason, bashMayMutateBoard, isInside } from "./guard.ts";
 import {
@@ -252,6 +256,52 @@ export function classifyPlannerCommand(
 	if (command === "plan-a-leg") return "leg";
 	if (!["planner", "plan", "agent", "mode"].includes(command)) return undefined;
 	return rest[0]?.toLowerCase() === "leg" ? "leg" : "mode";
+}
+
+interface PlannerModeArgs {
+	action: AgentModeAction;
+	promptText?: string;
+}
+
+/**
+ * Parse `/fit planner` mode arguments. The canonical `planner` and `plan`
+ * commands accept a bare prompt or `on <prompt>` to enable planner mode and
+ * send that prompt immediately. Hidden aliases stay action-only.
+ */
+export function parsePlannerModeArgs(
+	command: string,
+	rest: string[],
+): PlannerModeArgs {
+	const allowsPrompt = command === "planner" || command === "plan";
+	const first = rest[0]?.toLowerCase();
+	if (!first) return { action: "toggle" };
+
+	const action = parseAgentModeAction(first);
+	if (action) {
+		if (rest.length === 1) return { action };
+		if (allowsPrompt && action === "on") {
+			return { action, promptText: rest.slice(1).join(" ").trim() };
+		}
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			`Unexpected text after /fit ${command} ${first}.`,
+			{
+				hint: "Prompt text is only accepted when enabling planner mode: /fit planner [on] <text>",
+			},
+		);
+	}
+
+	if (allowsPrompt) {
+		return { action: "on", promptText: rest.join(" ").trim() };
+	}
+
+	throw new FitError(
+		"INVALID_ARGUMENTS",
+		`Unknown /fit ${command} action: ${rest[0]}`,
+		{
+			hint: "Usage: /fit planner|plan [on|off|status] [text] | /fit planner leg [nogrill] [query|text]",
+		},
+	);
 }
 
 /**
@@ -1172,6 +1222,8 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", async (event, ctx) => {
+		firstPromptSeen = false;
+		plannerReminderPending = agentModeEnabled(pi);
 		applyAgentModeUi(pi, ctx);
 		await refreshInProgressStatus(pi, ctx);
 		if (
@@ -1194,12 +1246,20 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
-		if (!agentModeEnabled(pi)) return undefined;
+		const plannerOn = agentModeEnabled(pi);
+		const pendingReminder = plannerOn && plannerReminderPending;
+		plannerReminderPending = false;
+		firstPromptSeen = true;
+		if (!plannerOn) return undefined;
 		const board = resolveBoard(configuredBoard(pi), ctx.cwd);
+		const content = [
+			`Planner mode is active: read-only outside the FIT board. This session is for planning FIT tickets; use fit_* tools for board changes and only read-only shell commands. Board: ${board}`,
+		];
+		if (pendingReminder) content.push(LATE_AGENT_MODE_REMINDER);
 		return {
 			message: {
 				customType: "fit-planner-mode",
-				content: `Planner mode is active: read-only outside the FIT board. This session is for planning FIT tickets; use fit_* tools for board changes and only read-only shell commands. Board: ${board}`,
+				content: content.join("\n\n"),
 				display: true,
 			},
 		};
@@ -1966,26 +2026,8 @@ export default function (pi: ExtensionAPI) {
 				const plannerKind = classifyPlannerCommand(command, rest);
 
 				if (plannerKind === "mode") {
-					if (rest.length > 1) {
-						throw new FitError(
-							"INVALID_ARGUMENTS",
-							`Unknown /fit planner argument: ${rest.slice(1).join(" ")}`,
-							{
-								hint: "Usage: /fit planner [on|off|status] | /fit planner leg [nogrill] [query|text]",
-							},
-						);
-					}
-					const action = parseAgentModeAction(rest[0]);
-					if (!action) {
-						throw new FitError(
-							"INVALID_ARGUMENTS",
-							`Unknown /fit planner action: ${rest[0]}`,
-							{
-								hint: "Usage: /fit planner [on|off|status] | /fit planner leg [nogrill] [query|text]",
-							},
-						);
-					}
-					applyAgentModeAction(pi, ctx, action);
+					const parsed = parsePlannerModeArgs(command, rest);
+					applyAgentModeAction(pi, ctx, parsed.action, parsed.promptText);
 					return;
 				}
 
@@ -2457,7 +2499,7 @@ export default function (pi: ExtensionAPI) {
 							`${promotedFrom ? `Promoted ${promotedFrom} -> ${promotedTo}; ` : ""}telling the agent to work ${details.join(", ")}.`,
 							tickets.length < requested ? "warning" : "info",
 						);
-						pi.sendUserMessage(message);
+						pi.sendUserMessage(withDeferredTicketPlannerReminder(pi, message));
 						return;
 					}
 
@@ -2527,7 +2569,7 @@ export default function (pi: ExtensionAPI) {
 							: `Telling the agent to ${planOnly ? "plan" : "work on"} ${ticket.id}${review ? " (review required)" : ""}.`,
 						"info",
 					);
-					pi.sendUserMessage(message);
+					pi.sendUserMessage(withDeferredTicketPlannerReminder(pi, message));
 					return;
 				}
 
@@ -2607,6 +2649,9 @@ export default function (pi: ExtensionAPI) {
 						`${createdFromText ? `Created ${ticket.id}; ` : ""}Planner mode is on; planning a leg from ${ticket.id} into ${legStatus} tickets.`,
 						"warning",
 					);
+					// The leg prompt owns its planning contract; do not also attach the
+					// deferred ticket reminder from an earlier silent activation.
+					plannerReminderPending = false;
 					pi.sendUserMessage(
 						buildPlanLegMessage(
 							ticket,
@@ -2652,13 +2697,16 @@ export default function (pi: ExtensionAPI) {
 						"info",
 					);
 					pi.sendUserMessage(
-						buildWorkMessage(
-							ticket,
-							started.created.ticket.id,
-							review,
-							grill,
-							planOnly,
-							"The /fit start command",
+						withDeferredTicketPlannerReminder(
+							pi,
+							buildWorkMessage(
+								ticket,
+								started.created.ticket.id,
+								review,
+								grill,
+								planOnly,
+								"The /fit start command",
+							),
 						),
 					);
 					return;
@@ -2732,7 +2780,9 @@ function fitHelp(board: string): string {
 		"Commands:",
 		"  /fit, /fit list [prefix]             Counts and tickets; prefix filters ids.",
 		"",
-		"  /fit planner [on|off|status]         Toggle read-only planner mode; only FIT board changes via fit_* are allowed. Alias: plan",
+		"  /fit planner [on|off|status] [text]   Toggle read-only planner mode; alias plan",
+		"      /fit planner|plan <text> turns planner on and sends <text> with planning instructions.",
+		"      Before the first prompt, turning planner on stays silent; instructions attach to the next prompt.",
 		"      Planner mode is only for planning FIT tickets; shell commands stay read-only.",
 		"",
 		"  Ctrl+Shift+A                         Toggle planner mode without typing /fit planner.",
@@ -2785,6 +2835,8 @@ function guardEnabled(pi: ExtensionAPI): boolean {
 
 let agentModeOverride: boolean | undefined;
 let agentModeFooterActive = false;
+let plannerReminderPending = false;
+let firstPromptSeen = false;
 
 function agentModeEnabled(pi: ExtensionAPI): boolean {
 	return (
@@ -2933,10 +2985,12 @@ function applyAgentModeAction(
 	pi: ExtensionAPI,
 	ctx: ExtensionContext,
 	action: AgentModeAction,
+	promptText?: string,
 ): boolean {
 	const previous = agentModeEnabled(pi);
 	const enabled = nextAgentMode(previous, action);
 	if (action !== "status") setAgentMode(enabled);
+	if (action !== "status" && !enabled) plannerReminderPending = false;
 	applyAgentModeUi(pi, ctx);
 	const board = resolveBoard(configuredBoard(pi), ctx.cwd);
 	ctx.ui.notify(
@@ -2945,9 +2999,35 @@ function applyAgentModeAction(
 			: "Planner mode is off. Normal tool access restored.",
 		enabled ? "warning" : "info",
 	);
+	if (promptText) {
+		plannerReminderPending = false;
+		pi.sendUserMessage(plannerPromptWithReminder(promptText));
+		return enabled;
+	}
 	const reminder = lateAgentModeReminder(previous, enabled, action);
-	if (reminder) pi.sendUserMessage(reminder);
+	if (reminder) {
+		if (shouldDeferAgentModeReminder(previous, enabled, action, firstPromptSeen)) {
+			plannerReminderPending = true;
+		} else {
+			pi.sendUserMessage(reminder);
+		}
+	}
 	return enabled;
+}
+
+/** Consume a deferred reminder for a generated /fit work or /fit start prompt. */
+function takeDeferredTicketPlannerReminder(pi: ExtensionAPI): string | undefined {
+	if (!plannerReminderPending || !agentModeEnabled(pi)) return undefined;
+	plannerReminderPending = false;
+	return DEFERRED_TICKET_PLANNER_REMINDER;
+}
+
+function withDeferredTicketPlannerReminder(
+	pi: ExtensionAPI,
+	message: string,
+): string {
+	const reminder = takeDeferredTicketPlannerReminder(pi);
+	return reminder ? `${message}\n\n${reminder}` : message;
 }
 
 type NotifyLevel = "info" | "warning" | "error";
@@ -3093,7 +3173,10 @@ async function startTicketFromPanel(
 		"info",
 	);
 	pi.sendUserMessage(
-		buildWorkMessage(ticket, promotedFrom, review, grill, planOnly, "The /fit board"),
+		withDeferredTicketPlannerReminder(
+			pi,
+			buildWorkMessage(ticket, promotedFrom, review, grill, planOnly, "The /fit board"),
+		),
 	);
 }
 
@@ -3249,7 +3332,7 @@ async function startSelectedWorkFromPanel(
 		`${promotedFrom ? `Promoted ${promotedFrom} -> ${promotedTo}; ` : ""}telling the agent to work ${details.join(", ")}.`,
 		"info",
 	);
-	pi.sendUserMessage(message);
+	pi.sendUserMessage(withDeferredTicketPlannerReminder(pi, message));
 }
 
 function boardViewAction(

@@ -44,6 +44,16 @@ export const PLAN_A_LEG_GRILL_INSTRUCTION = [
 	"If the user cancels a grilling question, stop without creating tickets or closing the umbrella.",
 ].join(" ");
 
+/**
+ * Added to a generated /fit work or /fit start prompt when planner mode was
+ * silently enabled before the session's first prompt. The command prompt
+ * already carries the ticket plan instruction; this keeps the stop rule close
+ * to the ticket handoff without duplicating the full generic reminder.
+ */
+export const DEFERRED_TICKET_PLANNER_REMINDER = [
+	"Planner mode is on. Plan this FIT ticket before touching code, present the plan in your reply, and do not implement, move, or close the ticket until the user turns planner mode off and explicitly confirms.",
+].join(" ");
+
 /** Sent when planner mode is turned on after the work prompt was already issued. */
 export const LATE_AGENT_MODE_REMINDER = [
 	"Planner mode is now on. Before doing any work, plan it and show the plan to the user.",
@@ -64,4 +74,22 @@ export function lateAgentModeReminder(
 	if (action === "status") return undefined;
 	if (previous || !enabled) return undefined;
 	return LATE_AGENT_MODE_REMINDER;
+}
+
+/**
+ * Before the session's first prompt, planner activation must not start an
+ * agent turn. The reminder is deferred to that first prompt instead.
+ */
+export function shouldDeferAgentModeReminder(
+	previous: boolean,
+	enabled: boolean,
+	action: AgentModeAction,
+	firstPromptSeen: boolean,
+): boolean {
+	return lateAgentModeReminder(previous, enabled, action) !== undefined && !firstPromptSeen;
+}
+
+/** Combine an explicit `/fit planner <text>` prompt with the planner reminder. */
+export function plannerPromptWithReminder(text: string): string {
+	return `${text}\n\n${LATE_AGENT_MODE_REMINDER}`;
 }

@@ -9,6 +9,7 @@ import {
 	buildRunMessage,
 	classifyPlannerCommand,
 	parsePlanLegFlags,
+	parsePlannerModeArgs,
 	parseWorkRunFlags,
 	selectSelectedWorkQueue,
 	selectWorkQueue,
@@ -181,6 +182,55 @@ describe("planner command routing", () => {
 	it("ignores unrelated commands", () => {
 		assert.equal(classifyPlannerCommand("list", []), undefined);
 		assert.equal(classifyPlannerCommand("work", ["leg"]), undefined);
+	});
+});
+
+describe("planner mode argument parsing", () => {
+	it("keeps plain mode actions", () => {
+		assert.deepEqual(parsePlannerModeArgs("planner", []), { action: "toggle" });
+		assert.deepEqual(parsePlannerModeArgs("planner", ["on"]), { action: "on" });
+		assert.deepEqual(parsePlannerModeArgs("planner", ["off"]), { action: "off" });
+		assert.deepEqual(parsePlannerModeArgs("planner", ["status"]), {
+			action: "status",
+		});
+	});
+
+	it("turns a bare planner/plan prompt into an enabling action", () => {
+		assert.deepEqual(parsePlannerModeArgs("planner", ["fix", "the", "typo"]), {
+			action: "on",
+			promptText: "fix the typo",
+		});
+		assert.deepEqual(parsePlannerModeArgs("plan", ["fix"]), {
+			action: "on",
+			promptText: "fix",
+		});
+		assert.deepEqual(parsePlannerModeArgs("planner", ["on", "fix"]), {
+			action: "on",
+			promptText: "fix",
+		});
+	});
+
+	it("rejects prompt text after off, status, toggle, or hidden aliases", () => {
+		expectFitError(
+			() => parsePlannerModeArgs("planner", ["off", "later"]),
+			"INVALID_ARGUMENTS",
+		);
+		expectFitError(
+			() => parsePlannerModeArgs("planner", ["status", "now"]),
+			"INVALID_ARGUMENTS",
+		);
+		expectFitError(
+			() => parsePlannerModeArgs("planner", ["toggle", "now"]),
+			"INVALID_ARGUMENTS",
+		);
+		expectFitError(
+			() => parsePlannerModeArgs("agent", ["fix"]),
+			"INVALID_ARGUMENTS",
+		);
+		expectFitError(
+			() => parsePlannerModeArgs("mode", ["on", "fix"]),
+			"INVALID_ARGUMENTS",
+		);
 	});
 });
 

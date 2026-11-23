@@ -3,10 +3,13 @@ import { describe, it } from "node:test";
 
 import {
 	AGENT_MODE_PLAN_INSTRUCTION,
+	DEFERRED_TICKET_PLANNER_REMINDER,
 	LATE_AGENT_MODE_REMINDER,
 	PLAN_A_LEG_GRILL_INSTRUCTION,
 	PLAN_A_LEG_INSTRUCTION,
 	lateAgentModeReminder,
+	plannerPromptWithReminder,
+	shouldDeferAgentModeReminder,
 } from "../src/prompt.ts";
 
 describe("planner-mode planning prompt", () => {
@@ -90,5 +93,28 @@ describe("late planner-mode activation reminder", () => {
 		assert.match(LATE_AGENT_MODE_REMINDER, /Do not create tickets/);
 		assert.match(LATE_AGENT_MODE_REMINDER, /Do not start implementing/);
 		assert.match(LATE_AGENT_MODE_REMINDER, /turn planner mode off and explicitly confirm/);
+	});
+});
+
+describe("first-prompt planner activation", () => {
+	it("defers an off -> on reminder until the session has seen a prompt", () => {
+		assert.equal(shouldDeferAgentModeReminder(false, true, "on", false), true);
+		assert.equal(shouldDeferAgentModeReminder(false, true, "toggle", false), true);
+		assert.equal(shouldDeferAgentModeReminder(false, true, "on", true), false);
+		assert.equal(shouldDeferAgentModeReminder(true, true, "on", false), false);
+		assert.equal(shouldDeferAgentModeReminder(false, false, "off", false), false);
+		assert.equal(shouldDeferAgentModeReminder(false, true, "status", false), false);
+	});
+
+	it("combines an explicit planner prompt with the reminder", () => {
+		const text = plannerPromptWithReminder("Plan the next leg.");
+		assert.match(text, /^Plan the next leg\./);
+		assert.match(text, /Before doing any work, plan it/);
+	});
+
+	it("keeps the generated ticket reminder short and contextual", () => {
+		assert.match(DEFERRED_TICKET_PLANNER_REMINDER, /Plan this FIT ticket/);
+		assert.match(DEFERRED_TICKET_PLANNER_REMINDER, /do not implement, move, or close/);
+		assert.doesNotMatch(DEFERRED_TICKET_PLANNER_REMINDER, /Do not create tickets/);
 	});
 });
