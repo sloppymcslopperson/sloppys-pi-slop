@@ -9,7 +9,8 @@
 		"fit",
 		"tickets",
 		"issue-tracker",
-		"markdown"
+		"markdown",
+		"a2ui"
 	],
 	"pi": {
 		"extensions": [
@@ -39,6 +40,7 @@
 		"typebox": "*"
 	},
 	"devDependencies": {
+		"@a2ui/web_core": "0.15.0",
 		"@types/node": "^22.19.0",
 		"typescript": "^5.9.0"
 	}

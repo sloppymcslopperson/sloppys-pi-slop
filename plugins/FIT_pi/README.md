@@ -423,6 +423,17 @@ Fuzzy matching lives here only. If several tickets match and a TUI is available,
 `/fit` shows a picker. Without a UI it prints the candidates instead of choosing
 one.
 
+When the host provides an A2UI panel bridge (`ctx.ui.panel`), `/fit` and
+`/fit list` open an interactive board browser instead of a text notification.
+Tickets are grouped into per-status tabs, and each card can inspect, start, or
+close a ticket. Open and backlog cards also have a checkbox; the board footer has
+an Autocommit checkbox and a Work action. Work runs exactly the checked queue in
+status order (`in_progress`, then checked `open`, then checked `backlog`), and
+always includes every in-progress ticket first. `/fit show` opens a ticket detail
+surface with its metadata, frontmatter, body, and the same actions. The panel is
+a presentation layer: the same deterministic board operations still do the
+writes. Hosts without a panel keep the existing notification and picker behavior.
+
 | Command | What it does |
 | --- | --- |
 | `/fit` or `/fit list [prefix]` | Show board counts and the first 100 tickets |
@@ -434,13 +445,48 @@ one.
 | `/fit move <query> <status>` | Move a ticket; alias `/fit mv` |
 | `/fit priority <query> <0-99>` | Change a ticket's filename priority; alias `/fit pri` |
 | `/fit work [N] [review] [nogrill] [autocommit]` | Ask the agent to work on the current ticket, or run a fixed queue of N tickets autonomously; asks before filling an empty queue from `backlog` |
-| `/fit new\|add [status] [priority] <text>` | Create a ticket |
+| `/fit new\|add [status] [priority] <text>` | Create a ticket; bare `/fit new` opens the A2UI form when available |
 | `/fit start [review] [nogrill] <text>` | Create a priority-0 ticket, start it, and prompt the agent; plan-first in planner mode |
 | `/fit planner leg [nogrill] [query\|text]` | Turn on planner mode and split a ticket into 2-7 open implementation tickets plus a final architecture review ticket; stops without implementing |
 | `/fit init [strict] [refresh] [git]` | Create the board, specs, and `AGENTS.md` section; `git` uses a `fit` branch worktree, plain init is inline |
 | `/fit check [cleanup [max] [dry-run]] [migrate] [normalize [dry-run]]` | Validate the board; cleanup long names, report migrations, or normalize bodies |
 | `/fit git` | Stamp closed tickets with the parent commit and commit the board |
 | `/fit help` | Show the full command reference |
+
+### A2UI board and ticket panels
+
+`src/a2ui.ts` is a generic A2UI v1.0 surface builder and panel adapter with no
+FIT-specific code. It emits plain JSON for the Basic catalog, checks that
+component ids are unique, and decodes the host's action response. `src/board-surface.ts`
+maps board data onto that builder for the board browser and ticket detail views.
+The generated payload is `{title, mode: "a2ui", surfaceId, messages}` with one
+`createSurface` message.
+
+Bare `/fit new` (and `/fit add`) opens a new-ticket form when the panel bridge is
+available. The form binds status (open or backlog), an optional subdirectory,
+priority, title, body, and dynamic key/value frontmatter rows to its data model.
+Add row appends a pair, each row has a remove control, and Create submits the
+same inputs as the text command. The title is the FIT slug: it is lowercased and
+hyphenated, checked against the 30-character short-name limit, and derived from
+the body until the user edits it. Frontmatter values infer simple booleans,
+nulls, and numbers; everything else stays a string. Without a panel, bare
+`/fit new` keeps the existing missing-content usage error.
+
+Panel actions are intentionally small:
+
+- `show` opens a ticket detail view.
+- `start` promotes an `open` or `backlog` ticket to `in_progress` and sends the
+  agent the normal work prompt, using the configured review and nogrill defaults.
+- `work-selected` runs the checked queue with the normal review, grill, and
+  optional autocommit defaults; checked backlog tickets need no extra prompt.
+- `close` moves the ticket to `closed` with its current revision.
+- `refresh`, `board`, and `cancel` navigate or dismiss the panel; refresh clears
+  the current checkbox selection.
+
+The plugin has no A2UI runtime dependency. The official `@a2ui/web_core` package
+is a dev dependency used only to validate generated messages in tests. A missing
+panel, an unreadable action, or a host error falls back to a notification rather
+than leaving the command stuck.
 
 ### Starting and continuing work
 

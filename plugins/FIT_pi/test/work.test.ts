@@ -10,6 +10,7 @@ import {
 	classifyPlannerCommand,
 	parsePlanLegFlags,
 	parseWorkRunFlags,
+	selectSelectedWorkQueue,
 	selectWorkQueue,
 } from "../src/index.ts";
 
@@ -137,6 +138,23 @@ describe("work queue selection", () => {
 	it("never includes closed tickets", () => {
 		const queue = selectWorkQueue(tickets, 20, true);
 		assert.ok(queue.every((item) => item.status !== "closed"));
+	});
+
+	it("uses all in_progress tickets then selected open and backlog tickets", () => {
+		const queue = selectSelectedWorkQueue(tickets, [
+			"backlog/00-later.md",
+			"open/01-fourth.md",
+			"closed/00-done.md",
+		]);
+		assert.deepEqual(
+			queue.map((item) => item.id),
+			[
+				"in_progress/00-first.md",
+				"in_progress/01-second.md",
+				"open/01-fourth.md",
+				"backlog/00-later.md",
+			],
+		);
 	});
 });
 

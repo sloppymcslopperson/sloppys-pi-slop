@@ -49,6 +49,28 @@ import {
 	restoreArchivedTicket,
 	updateTicket,
 } from "./fit.ts";
+import {
+	actionContextString,
+	panelFor,
+	requestA2uiAction,
+	type A2uiPanelAction,
+} from "./a2ui.ts";
+import {
+	BOARD_MOVE_ACTION,
+	BOARD_WORK_ACTION,
+	boardAutocommit,
+	boardSelectedDestination,
+	boardSelectedTicketIds,
+	buildBoardSurface,
+	buildTicketSurface,
+} from "./board-surface.ts";
+import {
+	applyNewTicketFormAction,
+	buildNewTicketSurface,
+	initialNewTicketState,
+	parseNewTicketAction,
+	prepareNewTicket,
+} from "./new-ticket-surface.ts";
 import { fuzzyFind } from "./human.ts";
 import { formatInProgressStatus } from "./status.ts";
 import {
@@ -340,6 +362,23 @@ export function selectWorkQueue(
 		}
 	}
 	return queue;
+}
+
+/**
+ * Build an explicit board-panel work queue: every in-progress ticket first,
+ * then the checked open tickets, then the checked backlog tickets.
+ */
+export function selectSelectedWorkQueue(
+	tickets: TicketSummary[],
+	selectedIds: Iterable<string>,
+): TicketSummary[] {
+	const selected = new Set(selectedIds);
+	return tickets.filter(
+		(ticket) =>
+			ticket.status === "in_progress" ||
+			(selected.has(ticket.id) &&
+				(ticket.status === "open" || ticket.status === "backlog")),
+	);
 }
 
 interface OpenFlags {
@@ -1951,9 +1990,16 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (command === "list" || command === "ls" || input === "") {
+					const filter = rest.join(" ");
+					if (panelFor(ctx.ui)) {
+						await runFitPanel(pi, ctx, board, {
+							kind: "board",
+							filter: filter || undefined,
+						});
+						return;
+					}
 					const { mode, tickets: all } = await readBoard(board);
 					const { counts } = countTickets(all);
-					const filter = rest.join(" ");
 					const filtered = filter
 						? all.filter((ticket) => ticket.id.startsWith(filter))
 						: all;
@@ -2081,6 +2127,10 @@ export default function (pi: ExtensionAPI) {
 							return;
 						}
 						const ticket = await readTicket(board, inProgress[0].id);
+						if (panelFor(ctx.ui)) {
+							await runFitPanel(pi, ctx, board, { kind: "ticket", id: ticket.id });
+							return;
+						}
 						ctx.ui.notify(formatShow(ticket), "info");
 						return;
 					}
@@ -2088,6 +2138,10 @@ export default function (pi: ExtensionAPI) {
 					const selected = await pickTicket(ctx, all, query);
 					if (!selected) return;
 					const ticket = await readTicket(board, selected.id);
+					if (panelFor(ctx.ui)) {
+						await runFitPanel(pi, ctx, board, { kind: "ticket", id: ticket.id });
+						return;
+					}
 					ctx.ui.notify(formatShow(ticket), "info");
 					return;
 				}
@@ -2611,6 +2665,10 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				if (command === "new" || command === "add") {
+					if (rest.length === 0 && panelFor(ctx.ui)) {
+						await runNewTicketPanel(ctx, board);
+						return;
+					}
 					const status = rest[0] ?? "open";
 					const priority = Number(rest[1] ?? 0);
 					const content = rest.slice(2).join(" ");
@@ -2697,6 +2755,7 @@ function fitHelp(board: string): string {
 		"      N>1 rejects review and planner mode. autocommit commits each ticket before closing it.",
 		"",
 		"  /fit new [status] [priority] <text>  Create a ticket with priority 00-99. Alias: add",
+		"      Bare /fit new opens the A2UI form when the host provides a panel.",
 		"",
 		"  /fit start [review] [nogrill] <text> Create, start, and hand off to the agent.",
 		"",
@@ -2945,4 +3004,530 @@ async function pickTicket(
 		return undefined;
 	}
 	return selectTicket(ctx, matches, "Select a ticket:", "Multiple matches");
+}
+
+// ---------------------------------------------------------------------------
+// A2UI board browser and ticket detail
+// ---------------------------------------------------------------------------
+
+const FIT_PANEL_TIMEOUT_MS = 15 * 60 * 1000;
+
+type FitPanelView =
+	| {
+			kind: "board";
+			filter?: string;
+			selected?: string[];
+			autocommit?: boolean;
+			destination?: string[];
+			error?: string;
+			notice?: string;
+		}
+	| { kind: "ticket"; id: string };
+
+function notifyFitError(
+	ctx: { ui: { notify(message: string, level: NotifyLevel): void } },
+	error: unknown,
+): void {
+	if (error instanceof FitError) {
+		const lines = [error.message];
+		if (error.hint) lines.push(`Hint: ${error.hint}`);
+		if (error.candidates?.length) lines.push(error.candidates.join("\n"));
+		ctx.ui.notify(lines.join("\n"), "error");
+		return;
+	}
+	ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
+}
+
+async function closeTicketFromPanel(
+	ctx: ExtensionContext,
+	board: string,
+	id: string,
+): Promise<void> {
+	const ticket = await readTicket(board, id);
+	const result = await withFileMutationQueue(board, () =>
+		moveTicket({
+			board,
+			id: ticket.id,
+			status: "closed",
+			expectedRevision: ticket.revision,
+		}),
+	);
+	ctx.ui.notify(
+		result.changed ? `Closed ${result.fromId} -> ${result.toId}` : `Already closed: ${result.toId}`,
+		"info",
+	);
+}
+
+async function startTicketFromPanel(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	board: string,
+	id: string,
+): Promise<void> {
+	let ticket = await readTicket(board, id);
+	if (ticket.status === "closed") {
+		throw new FitError("TICKET_CLOSED", `Ticket ${ticket.id} is closed.`, {
+			hint: "Restore it or create a new ticket before starting work.",
+		});
+	}
+
+	let promotedFrom: string | undefined;
+	if (ticket.status !== "in_progress") {
+		const moved = await withFileMutationQueue(board, () =>
+			moveTicket({
+				board,
+				id: ticket.id,
+				status: "in_progress",
+				expectedRevision: ticket.revision,
+			}),
+		);
+		promotedFrom = moved.fromId;
+		ticket = await readTicket(board, moved.toId);
+	}
+
+	const review = configuredReview(pi);
+	const grill = !(configuredNogrill(pi));
+	const planOnly = agentModeEnabled(pi);
+	ctx.ui.notify(
+		`${promotedFrom ? `Promoted ${promotedFrom} -> ${ticket.id}; ` : ""}telling the agent to ${planOnly ? "plan" : "work on"} ${ticket.id}${review ? " (review required)" : ""}.`,
+		"info",
+	);
+	pi.sendUserMessage(
+		buildWorkMessage(ticket, promotedFrom, review, grill, planOnly, "The /fit board"),
+	);
+}
+
+async function moveSelectedTicketsFromPanel(
+	ctx: ExtensionContext,
+	board: string,
+	selectedIds: string[],
+	destination: string,
+): Promise<{ failedIds: string[]; notice: string }> {
+	if (!FIT_STATUS_ORDER_SET.has(destination)) {
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			`Unknown destination status: ${destination}.`,
+			{ hint: `Use one of: ${FIT_STATUS_ORDER.join(", ")}.` },
+		);
+	}
+	if (selectedIds.length === 0) {
+		throw new FitError(
+			"NO_SELECTION",
+			"Select at least one open or backlog ticket to move.",
+			{ hint: "Check a ticket in the board list first." },
+		);
+	}
+	if (destination === "in_progress" && selectedIds.length > 1) {
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			"Only one ticket can be moved to in_progress at a time.",
+			{ hint: "Select exactly one ticket, or choose another status." },
+		);
+	}
+
+	const moved: string[] = [];
+	const failed: Array<{ id: string; error: unknown }> = [];
+	for (const id of selectedIds) {
+		try {
+			const ticket = await readTicket(board, id);
+			const result = await withFileMutationQueue(board, () =>
+				moveTicket({
+					board,
+					id: ticket.id,
+					status: destination,
+					expectedRevision: ticket.revision,
+				}),
+			);
+			moved.push(
+				result.changed
+					? `${result.fromId} -> ${result.toId}`
+					: `${result.toId} already in ${destination}`,
+			);
+		} catch (error) {
+			failed.push({ id, error });
+		}
+	}
+
+	const lines: string[] = [];
+	if (moved.length > 0) {
+		lines.push(`Moved ${moved.length} ticket(s) to ${destination}:`);
+		lines.push(...moved.map((line) => `- ${line}`));
+	}
+	if (failed.length > 0) {
+		lines.push(`Could not move ${failed.length} ticket(s):`);
+		lines.push(
+			...failed.map(
+				(item) => `- ${item.id}: ${fitErrorText(item.error).replace(/\s*\n\s*/g, " · ")}`,
+			),
+		);
+	}
+	const notice = lines.join("\n");
+	ctx.ui.notify(notice, failed.length > 0 ? "warning" : "info");
+	return { failedIds: failed.map((item) => item.id), notice };
+}
+
+function fitErrorText(error: unknown): string {
+	if (error instanceof FitError) {
+		return [error.message, error.hint ? `Hint: ${error.hint}` : ""]
+			.filter(Boolean)
+			.join("\n");
+	}
+	return error instanceof Error ? error.message : String(error);
+}
+
+async function startSelectedWorkFromPanel(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	board: string,
+	selectedIds: string[],
+	autocommit: boolean,
+): Promise<void> {
+	const review = configuredReview(pi);
+	const grill = !configuredNogrill(pi);
+	const planOnly = agentModeEnabled(pi);
+	const all = await listTickets(board);
+	const queue = selectSelectedWorkQueue(all, selectedIds);
+	if (queue.length === 0) {
+		throw new FitError(
+			"NO_WORK",
+			"Select at least one open or backlog ticket, or have a ticket in in_progress.",
+			{ hint: "Check a ticket in the board list first." },
+		);
+	}
+	if (review && queue.length > 1) {
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			"Review mode cannot run a multi-ticket batch because each ticket must close before the next can start.",
+			{ hint: "Select one ticket, or turn review mode off." },
+		);
+	}
+	if (review && autocommit) {
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			"Autocommit cannot be combined with review mode because the ticket stays in_progress and no commit hash can be recorded.",
+			{ hint: "Uncheck Autocommit or turn review mode off." },
+		);
+	}
+	if (planOnly) {
+		throw new FitError(
+			"INVALID_ARGUMENTS",
+			"Planner mode is plan-only and cannot run the selected Work queue.",
+			{ hint: "Turn planner mode off, or use plain /fit work for one ticket." },
+		);
+	}
+
+	let promotedFrom: string | undefined;
+	let promotedTo: string | undefined;
+	if (queue[0].status !== "in_progress") {
+		const moved = await withFileMutationQueue(board, () =>
+			moveTicket({ board, id: queue[0].id, status: "in_progress" }),
+		);
+		promotedFrom = moved.fromId;
+		promotedTo = moved.toId;
+	}
+
+	const tickets: Ticket[] = [];
+	for (const summary of queue) {
+		const id = summary.id === promotedFrom ? promotedTo! : summary.id;
+		tickets.push(await readTicket(board, id));
+	}
+
+	const message = buildRunMessage(
+		tickets,
+		queue.length,
+		board,
+		review,
+		grill,
+		autocommit,
+	);
+	const details = [
+		`${tickets.length} ticket(s)`,
+		autocommit ? "autocommit" : "",
+		review ? "review required" : "",
+	].filter(Boolean);
+	ctx.ui.notify(
+		`${promotedFrom ? `Promoted ${promotedFrom} -> ${promotedTo}; ` : ""}telling the agent to work ${details.join(", ")}.`,
+		"info",
+	);
+	pi.sendUserMessage(message);
+}
+
+function boardViewAction(
+	action: A2uiPanelAction,
+): { name: "cancel" | "refresh" | "show" | "start" | "close"; id?: string } | undefined {
+	if (action.name === "cancel" || action.name === "refresh") {
+		return { name: action.name };
+	}
+	if (!["show", "start", "close"].includes(action.name)) return undefined;
+	const id = actionContextString(action, "ticketId");
+	if (!id) return undefined;
+	return { name: action.name as "show" | "start" | "close", id };
+}
+
+function ticketViewAction(
+	action: A2uiPanelAction,
+): { name: "cancel" | "refresh" | "board" | "start" | "close" } | undefined {
+	if (["cancel", "refresh", "board", "start", "close"].includes(action.name)) {
+		return { name: action.name as "cancel" | "refresh" | "board" | "start" | "close" };
+	}
+	return undefined;
+}
+
+/**
+ * Drive the A2UI new-ticket form until it is cancelled or a ticket is created.
+ * This only runs when the host exposes `ui.panel`; bare `/fit new` keeps its
+ * usage error everywhere else.
+ */
+async function runNewTicketPanel(
+	ctx: ExtensionContext,
+	board: string,
+): Promise<void> {
+	let state = initialNewTicketState();
+
+	for (;;) {
+		const { mode } = await readBoard(board);
+		const outcome = await requestA2uiAction(
+			ctx.ui,
+			buildNewTicketSurface({ board, mode, state }),
+			{ timeout: FIT_PANEL_TIMEOUT_MS },
+		);
+		if (outcome.kind === "cancelled") return;
+		if (outcome.kind === "unavailable") {
+			ctx.ui.notify("This host no longer provides an A2UI panel.", "warning");
+			return;
+		}
+		if (outcome.kind === "error") {
+			ctx.ui.notify(`The FIT new-ticket panel failed: ${outcome.error}`, "error");
+			return;
+		}
+
+		const action = parseNewTicketAction(outcome.action);
+		if (action.kind === "cancel") return;
+		if (action.kind === "unknown") continue;
+
+		state = applyNewTicketFormAction(state, outcome.action);
+		if (action.kind === "add-row" || action.kind === "remove-row") {
+			continue;
+		}
+
+		const prepared = prepareNewTicket(state);
+		if (!prepared.ok) {
+			state = { ...state, error: prepared.error };
+			continue;
+		}
+
+		try {
+			const result = await withFileMutationQueue(board, () =>
+				createTicket({
+					board,
+					status: prepared.values.status,
+					priority: prepared.values.priority,
+					content: prepared.values.content,
+					slug: prepared.values.slug,
+					frontmatter: prepared.values.frontmatter,
+				}),
+			);
+			ctx.ui.notify(
+				`${result.created ? "Created" : "Already existed"}: ${result.ticket.id}`,
+				"info",
+			);
+			return;
+		} catch (error) {
+			state = {
+				...state,
+				error: error instanceof Error ? error.message : String(error),
+			};
+		}
+	}
+}
+
+/**
+ * Drive the A2UI board browser until the panel is dismissed or an action hands
+ * work to the agent. The existing notify/select path remains the fallback; this
+ * only runs when the host exposes `ui.panel`.
+ */
+async function runFitPanel(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	board: string,
+	initial: FitPanelView,
+): Promise<void> {
+	let view = initial;
+	const initialFilter = initial.kind === "board" ? initial.filter : undefined;
+
+	for (;;) {
+		if (view.kind === "board") {
+			const { mode, tickets: all } = await readBoard(board);
+			const { counts } = countTickets(all);
+			const filter = view.filter;
+			const filtered = filter
+				? all.filter((ticket) => ticket.id.startsWith(filter))
+				: all;
+			const listed = filtered.slice(0, 100);
+			const outcome = await requestA2uiAction(
+				ctx.ui,
+				buildBoardSurface({
+					board,
+					mode,
+					tickets: listed,
+					counts,
+					listed: listed.length,
+					total: all.length,
+					filter,
+					agentMode: agentModeEnabled(pi),
+					selected: view.selected,
+					autocommit: view.autocommit,
+					destination: view.destination,
+					error: view.error,
+					notice: view.notice,
+				}),
+				{ timeout: FIT_PANEL_TIMEOUT_MS },
+			);
+			if (outcome.kind === "cancelled") return;
+			if (outcome.kind === "unavailable") {
+				ctx.ui.notify("This host no longer provides an A2UI panel.", "warning");
+				return;
+			}
+			if (outcome.kind === "error") {
+				ctx.ui.notify(`The FIT board panel failed: ${outcome.error}`, "error");
+				return;
+			}
+
+			if (outcome.action.name === BOARD_WORK_ACTION) {
+				const selected = boardSelectedTicketIds(outcome.action, listed);
+				const autocommit = boardAutocommit(outcome.action);
+				try {
+					await startSelectedWorkFromPanel(pi, ctx, board, selected, autocommit);
+					return;
+				} catch (error) {
+					view = {
+						kind: "board",
+						filter,
+						selected,
+						autocommit,
+						error: fitErrorText(error),
+					};
+					continue;
+				}
+			}
+
+			if (outcome.action.name === BOARD_MOVE_ACTION) {
+				const selected = boardSelectedTicketIds(outcome.action, listed);
+				const destination = boardSelectedDestination(outcome.action);
+				try {
+					if (!destination) {
+						throw new FitError(
+							"NO_DESTINATION",
+							"Choose a destination status before moving tickets.",
+							{ hint: "Pick one option in the Move selected to row." },
+						);
+					}
+					const result = await moveSelectedTicketsFromPanel(
+						ctx,
+						board,
+						selected,
+						destination,
+					);
+					view = {
+						kind: "board",
+						filter,
+						selected: result.failedIds,
+						destination: [destination],
+						notice: result.notice,
+					};
+				} catch (error) {
+					view = {
+						kind: "board",
+						filter,
+						selected,
+						destination: destination ? [destination] : undefined,
+						notice: fitErrorText(error),
+					};
+				}
+				continue;
+			}
+
+			const action = boardViewAction(outcome.action);
+			if (!action) continue;
+			if (action.name === "cancel") return;
+			if (action.name === "refresh") {
+				view = { kind: "board", filter };
+				continue;
+			}
+			if (action.name === "show" && action.id) {
+				view = { kind: "ticket", id: action.id };
+				continue;
+			}
+			if (action.name === "start" && action.id) {
+				try {
+					await startTicketFromPanel(pi, ctx, board, action.id);
+				} catch (error) {
+					notifyFitError(ctx, error);
+				}
+				return;
+			}
+			if (action.name === "close" && action.id) {
+				try {
+					await closeTicketFromPanel(ctx, board, action.id);
+				} catch (error) {
+					notifyFitError(ctx, error);
+				}
+				continue;
+			}
+			continue;
+		}
+
+		let ticket: Ticket;
+		let mode: BoardMode;
+		try {
+			ticket = await readTicket(board, view.id);
+			mode = (await readBoard(board)).mode;
+		} catch (error) {
+			notifyFitError(ctx, error);
+			view = { kind: "board", filter: initialFilter };
+			continue;
+		}
+
+		const outcome = await requestA2uiAction(
+			ctx.ui,
+			buildTicketSurface({ board, mode, ticket }),
+			{ timeout: FIT_PANEL_TIMEOUT_MS },
+		);
+		if (outcome.kind === "cancelled") return;
+		if (outcome.kind === "unavailable") {
+			ctx.ui.notify("This host no longer provides an A2UI panel.", "warning");
+			return;
+		}
+		if (outcome.kind === "error") {
+			ctx.ui.notify(`The FIT ticket panel failed: ${outcome.error}`, "error");
+			return;
+		}
+
+		const action = ticketViewAction(outcome.action);
+		if (!action) continue;
+		if (action.name === "cancel") return;
+		if (action.name === "refresh") continue;
+		if (action.name === "board") {
+			view = { kind: "board", filter: initialFilter };
+			continue;
+		}
+		if (action.name === "start") {
+			try {
+				await startTicketFromPanel(pi, ctx, board, ticket.id);
+			} catch (error) {
+				notifyFitError(ctx, error);
+			}
+			return;
+		}
+		if (action.name === "close") {
+			try {
+				await closeTicketFromPanel(ctx, board, ticket.id);
+			} catch (error) {
+				notifyFitError(ctx, error);
+				continue;
+			}
+			view = { kind: "board", filter: initialFilter };
+			continue;
+		}
+	}
 }
