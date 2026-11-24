@@ -7,7 +7,9 @@ import { basicCatalog } from "@a2ui/web_core/catalogs/basic/v1";
 import type { BoardMode, Ticket, TicketSummary } from "../src/fit.ts";
 import {
 	BOARD_MOVE_ACTION,
+	BOARD_NEW_ACTION,
 	BOARD_WORK_ACTION,
+	TICKET_COPY_ACTION,
 	boardAutocommit,
 	boardSelectedDestination,
 	boardSelectedTicketIds,
@@ -105,6 +107,11 @@ describe("FIT board A2UI surfaces", () => {
 		const meta = list.find((component) => component["id"] === "meta");
 		assert.match(String(meta?.["text"]), /Tickets: 2 total \(open 1 · closed 1\)/);
 		assert.match(String(meta?.["text"]), /Board: \/repo\/fit/);
+		const newTicket = list.find((component) => component["id"] === "new_ticket");
+		assert.equal(newTicket?.["component"], "Button");
+		assert.deepEqual(newTicket?.["action"], {
+			event: { name: BOARD_NEW_ACTION },
+		});
 		assertValid(payload);
 	});
 
@@ -120,6 +127,10 @@ describe("FIT board A2UI surfaces", () => {
 		const emptyTabs = components(empty).find((component) => component["id"] === "tabs");
 		assert.equal(emptyTabs?.["component"], "Text");
 		assert.equal(emptyTabs?.["text"], "No tickets yet.");
+		assert.equal(
+			components(empty).find((component) => component["id"] === "new_ticket")?.["component"],
+			"Button",
+		);
 
 		const filtered = buildBoardSurface({
 			board: "/repo/fit",
@@ -293,6 +304,14 @@ describe("FIT board A2UI surfaces", () => {
 		});
 		const board = list.find((component) => component["id"] === "board");
 		assert.deepEqual(board?.["action"], { event: { name: "board" } });
+		const copy = list.find((component) => component["id"] === "copy");
+		assert.equal(copy?.["component"], "Button");
+		assert.deepEqual(copy?.["action"], {
+			event: {
+				name: TICKET_COPY_ACTION,
+				context: { ticketId: "open/03-fix-typo.md" },
+			},
+		});
 		assertValid(payload);
 
 		const closed = buildTicketSurface({

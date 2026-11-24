@@ -57,7 +57,9 @@ import {
 } from "./a2ui.ts";
 import {
 	BOARD_MOVE_ACTION,
+	BOARD_NEW_ACTION,
 	BOARD_WORK_ACTION,
+	TICKET_COPY_ACTION,
 	boardAutocommit,
 	boardSelectedDestination,
 	boardSelectedTicketIds,
@@ -68,6 +70,7 @@ import {
 	applyNewTicketFormAction,
 	buildNewTicketSurface,
 	initialNewTicketState,
+	initialNewTicketStateFromTicket,
 	normalizedNewTicketTitleState,
 	parseNewTicketAction,
 	prepareNewTicket,
@@ -2715,7 +2718,10 @@ export default function (pi: ExtensionAPI) {
 
 				if (command === "new" || command === "add") {
 					if (rest.length === 0 && panelFor(ctx.ui)) {
-						await runNewTicketPanel(ctx, board);
+						notifyNewTicketResult(
+							ctx,
+							await runNewTicketPanel(ctx, board),
+						);
 						return;
 					}
 					const status = rest[0] ?? "open";
@@ -3338,7 +3344,11 @@ async function startSelectedWorkFromPanel(
 
 function boardViewAction(
 	action: A2uiPanelAction,
-): { name: "cancel" | "refresh" | "show" | "start" | "close"; id?: string } | undefined {
+): {
+	name: "cancel" | "refresh" | "new" | "show" | "start" | "close";
+	id?: string;
+} | undefined {
+	if (action.name === BOARD_NEW_ACTION) return { name: "new" };
 	if (action.name === "cancel" || action.name === "refresh") {
 		return { name: action.name };
 	}
@@ -3350,11 +3360,40 @@ function boardViewAction(
 
 function ticketViewAction(
 	action: A2uiPanelAction,
-): { name: "cancel" | "refresh" | "board" | "start" | "close" } | undefined {
+): {
+	name: "cancel" | "refresh" | "board" | "copy" | "start" | "close";
+} | undefined {
+	if (action.name === TICKET_COPY_ACTION) return { name: "copy" };
 	if (["cancel", "refresh", "board", "start", "close"].includes(action.name)) {
 		return { name: action.name as "cancel" | "refresh" | "board" | "start" | "close" };
 	}
 	return undefined;
+}
+
+type NewTicketPanelResult =
+	| { kind: "created"; id: string; created: boolean }
+	| { kind: "cancelled" }
+	| { kind: "unavailable" }
+	| { kind: "error"; error: string };
+
+function notifyNewTicketResult(
+	ctx: ExtensionContext,
+	result: NewTicketPanelResult,
+): void {
+	if (result.kind === "created") {
+		ctx.ui.notify(
+			`${result.created ? "Created" : "Already existed"}: ${result.id}`,
+			"info",
+		);
+		return;
+	}
+	if (result.kind === "unavailable") {
+		ctx.ui.notify("This host no longer provides an A2UI panel.", "warning");
+		return;
+	}
+	if (result.kind === "error") {
+		ctx.ui.notify(`The FIT new-ticket panel failed: ${result.error}`, "error");
+	}
 }
 
 /**
@@ -3365,8 +3404,9 @@ function ticketViewAction(
 async function runNewTicketPanel(
 	ctx: ExtensionContext,
 	board: string,
-): Promise<void> {
-	let state = initialNewTicketState();
+	initial: ReturnType<typeof initialNewTicketState> = initialNewTicketState(),
+): Promise<NewTicketPanelResult> {
+	let state = initial;
 
 	for (;;) {
 		const { mode } = await readBoard(board);
@@ -3375,18 +3415,14 @@ async function runNewTicketPanel(
 			buildNewTicketSurface({ board, mode, state }),
 			{ timeout: FIT_PANEL_TIMEOUT_MS },
 		);
-		if (outcome.kind === "cancelled") return;
-		if (outcome.kind === "unavailable") {
-			ctx.ui.notify("This host no longer provides an A2UI panel.", "warning");
-			return;
-		}
+		if (outcome.kind === "cancelled") return { kind: "cancelled" };
+		if (outcome.kind === "unavailable") return { kind: "unavailable" };
 		if (outcome.kind === "error") {
-			ctx.ui.notify(`The FIT new-ticket panel failed: ${outcome.error}`, "error");
-			return;
+			return { kind: "error", error: outcome.error };
 		}
 
 		const action = parseNewTicketAction(outcome.action);
-		if (action.kind === "cancel") return;
+		if (action.kind === "cancel") return { kind: "cancelled" };
 		if (action.kind === "unknown") continue;
 
 		state = applyNewTicketFormAction(state, outcome.action);
@@ -3414,15 +3450,15 @@ async function runNewTicketPanel(
 					frontmatter: prepared.values.frontmatter,
 				}),
 			);
-			ctx.ui.notify(
-				`${result.created ? "Created" : "Already existed"}: ${result.ticket.id}`,
-				"info",
-			);
-			return;
+			return {
+				kind: "created",
+				id: result.ticket.id,
+				created: result.created,
+			};
 		} catch (error) {
 			state = {
 				...normalizedNewTicketTitleState(state),
-				error: error instanceof Error ? error.message : String(error),
+				error: fitErrorText(error),
 			};
 		}
 	}
@@ -3541,6 +3577,27 @@ async function runFitPanel(
 				view = { kind: "board", filter };
 				continue;
 			}
+			if (action.name === "new") {
+				const previous = view;
+				const result = await runNewTicketPanel(ctx, board);
+				if (result.kind === "cancelled") {
+					view = previous;
+					continue;
+				}
+				if (result.kind === "created") {
+					view = {
+						kind: "board",
+						filter,
+						selected: previous.selected,
+						autocommit: previous.autocommit,
+						destination: previous.destination,
+						notice: `${result.created ? "Created" : "Already existed"}: ${result.id}`,
+					};
+					continue;
+				}
+				notifyNewTicketResult(ctx, result);
+				return;
+			}
 			if (action.name === "show" && action.id) {
 				view = { kind: "ticket", id: action.id };
 				continue;
@@ -3594,6 +3651,27 @@ async function runFitPanel(
 		if (!action) continue;
 		if (action.name === "cancel") return;
 		if (action.name === "refresh") continue;
+		if (action.name === "copy") {
+			const result = await runNewTicketPanel(
+				ctx,
+				board,
+				initialNewTicketStateFromTicket(ticket),
+			);
+			if (result.kind === "cancelled") {
+				view = { kind: "ticket", id: ticket.id };
+				continue;
+			}
+			if (result.kind === "created") {
+				view = {
+					kind: "board",
+					filter: initialFilter,
+					notice: `${result.created ? "Created" : "Already existed"}: ${result.id}`,
+				};
+				continue;
+			}
+			notifyNewTicketResult(ctx, result);
+			return;
+		}
 		if (action.name === "board") {
 			view = { kind: "board", filter: initialFilter };
 			continue;

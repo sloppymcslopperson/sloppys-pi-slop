@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { MessageProcessor } from "@a2ui/web_core";
 import { basicCatalog } from "@a2ui/web_core/catalogs/basic/v1";
 
-import type { BoardMode } from "../src/fit.ts";
+import type { BoardMode, Ticket } from "../src/fit.ts";
 import type { A2uiPanelAction, A2uiPanelPayload } from "../src/a2ui.ts";
 import {
 	MAX_NEW_TICKET_TITLE_CHARS,
@@ -15,6 +15,7 @@ import {
 	applyNewTicketFormAction,
 	buildNewTicketSurface,
 	initialNewTicketState,
+	initialNewTicketStateFromTicket,
 	normalizedNewTicketTitleState,
 	parseNewTicketAction,
 	prepareNewTicket,
@@ -253,6 +254,63 @@ describe("new ticket A2UI form", () => {
 		assert.equal(removeAction.event?.context?.["rowIndex"], 1);
 		assert.deepEqual(removeAction.event?.context?.["fmKey1"], { "@path": "/frontmatter/1/key" });
 		assertValid(payload);
+	});
+
+	it("prefills a copy from every source field except the title", () => {
+		const source: Ticket = {
+			id: "closed/07-old-work.md",
+			path: "/board/closed/07-old-work.md",
+			status: "closed",
+			subdir: "docs",
+			filename: "07-old-work.md",
+			name: "07-old-work",
+			shortName: "old-work",
+			displayName: "Old Work",
+			project: "docs",
+			priority: 7,
+			title: "Old work.",
+			bodyChars: 5,
+			content: "Body.",
+			revision: "abc123",
+			frontmatterRaw: null,
+			frontmatter: {
+				project: "docs",
+				reviewed: true,
+				count: 3,
+				empty: null,
+				tags: ["a", 2],
+			},
+			body: "Body.\n\n### Notes",
+		};
+
+		const state = initialNewTicketStateFromTicket(source);
+		assert.equal(state.status, "open");
+		assert.equal(state.subdir, "docs");
+		assert.equal(state.priority, "7");
+		assert.equal(state.title, "");
+		assert.equal(state.titleTouched, false);
+		assert.equal(state.body, source.body);
+		assert.deepEqual(state.frontmatter, [
+			{ key: "project", value: "docs" },
+			{ key: "reviewed", value: "true" },
+			{ key: "count", value: "3" },
+			{ key: "empty", value: "null" },
+			{ key: "tags", value: "[\"a\",2]" },
+		]);
+
+		const prepared = prepareNewTicket(state);
+		assert.equal(prepared.ok, true);
+		if (prepared.ok) {
+			assert.equal(prepared.values.status, "open/docs");
+			assert.equal(prepared.values.priority, 7);
+			assert.deepEqual(prepared.values.frontmatter.tags, ["a", 2]);
+		}
+
+		const backlog = initialNewTicketStateFromTicket({
+			...source,
+			status: "backlog",
+		});
+		assert.equal(backlog.status, "backlog");
 	});
 
 	it("normalizes the displayed title after a failed save", () => {

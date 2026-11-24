@@ -434,13 +434,15 @@ one.
 When the host provides an A2UI panel bridge (`ctx.ui.panel`), `/fit` and
 `/fit list` open an interactive board browser instead of a text notification.
 Tickets are grouped into per-status tabs, and each card can inspect, start, or
-close a ticket. Open and backlog cards also have a checkbox; the board footer has
-an Autocommit checkbox and a Work action. Work runs exactly the checked queue in
-status order (`in_progress`, then checked `open`, then checked `backlog`), and
-always includes every in-progress ticket first. `/fit show` opens a ticket detail
-surface with its metadata, frontmatter, body, and the same actions. The panel is
-a presentation layer: the same deterministic board operations still do the
-writes. Hosts without a panel keep the existing notification and picker behavior.
+close a ticket. The board header has a New ticket button, even on an empty board.
+Open and backlog cards also have a checkbox; the board footer has an Autocommit
+checkbox and a Work action. Work runs exactly the checked queue in status order
+(`in_progress`, then checked `open`, then checked `backlog`), and always includes
+every in-progress ticket first. `/fit show` opens a ticket detail surface with
+its metadata, frontmatter, body, and the same actions, plus New from copy. The
+panel is a presentation layer: the same deterministic board operations still do
+the writes. Hosts without a panel keep the existing notification and picker
+behavior.
 
 | Command | What it does |
 | --- | --- |
@@ -479,11 +481,16 @@ hyphenated, checked against the 30-character short-name limit, and derived from
 the body until the user edits it. The live title field accepts uppercase and
 spaces while typing; the normalized slug is shown after a failed save and is
 always used when the ticket is created. Frontmatter values infer simple booleans,
-nulls, and numbers; everything else stays a string. Without a panel, bare
-`/fit new` keeps the existing missing-content usage error.
+nulls, numbers, and JSON scalar arrays; everything else stays a string. New from
+copy prefills status, subdirectory, priority, body, and frontmatter, but leaves
+the title to derive from the copied body so the user can make it unique. Without
+a panel, bare `/fit new` keeps the existing missing-content usage error.
 
 Panel actions are intentionally small:
 
+- `new-ticket` opens the blank new-ticket form from the board header; cancel
+  returns to the board and create returns with a refreshed board notice.
+- `copy-ticket` opens the same form prefilled from the ticket detail view.
 - `show` opens a ticket detail view.
 - `start` promotes an `open` or `backlog` ticket to `in_progress` and sends the
   agent the normal work prompt, using the configured review and nogrill defaults.

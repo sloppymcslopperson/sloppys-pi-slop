@@ -20,6 +20,8 @@ import {
 
 export const BOARD_WORK_ACTION = "work-selected";
 export const BOARD_MOVE_ACTION = "move-selected";
+export const BOARD_NEW_ACTION = "new-ticket";
+export const TICKET_COPY_ACTION = "copy-ticket";
 
 const STATUS_LABELS: Record<string, string> = {
 	in_progress: "In progress",
@@ -157,7 +159,7 @@ export function buildBoardSurface(input: BoardSurfaceInput): A2uiPanelPayload {
 			destination: input.destination ?? [],
 		},
 	});
-	const rootChildren = ["title", "meta", "tabs"];
+	const rootChildren = ["title", "meta", "new_bar", "tabs"];
 	if (input.error) rootChildren.push("error");
 	if (input.notice) rootChildren.push("notice");
 	rootChildren.push("work_bar");
@@ -178,6 +180,13 @@ export function buildBoardSurface(input: BoardSurfaceInput): A2uiPanelPayload {
 	surface.column("root", rootChildren);
 	surface.text("title", "FIT board");
 	surface.text("meta", meta, { variant: "caption" });
+	surface.button(
+		"new_ticket",
+		"New ticket",
+		ticketAction(BOARD_NEW_ACTION),
+		{ variant: "primary" },
+	);
+	surface.row("new_bar", ["new_ticket"], { justify: "end" });
 
 	const grouped = new Map<string, TicketSummary[]>();
 	for (const ticket of input.tickets) {
@@ -362,9 +371,15 @@ export function buildTicketSurface(input: TicketSurfaceInput): A2uiPanelPayload 
 		});
 		actionIds.push("start", "close");
 	}
+	surface.button(
+		"copy",
+		"New from copy",
+		ticketAction(TICKET_COPY_ACTION, ticket.id),
+		{ variant: "borderless" },
+	);
 	surface.button("board", "Board", ticketAction("board"), { variant: "borderless" });
 	surface.button("cancel", "Close", ticketAction("cancel"), { variant: "borderless" });
-	actionIds.push("board", "cancel");
+	actionIds.push("copy", "board", "cancel");
 	surface.row("actions", actionIds, { justify: "end" });
 
 	return surface.build();

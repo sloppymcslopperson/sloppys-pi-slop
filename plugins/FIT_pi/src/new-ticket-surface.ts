@@ -18,6 +18,7 @@ import {
 	deriveTicketName,
 	type BoardMode,
 	type FrontmatterValue,
+	type Ticket,
 } from "./fit.ts";
 
 /** Matches the FIT short-name limit used by createTicket. */
@@ -89,6 +90,33 @@ export function initialNewTicketState(): NewTicketFormState {
 		body: "",
 		titleTouched: false,
 		frontmatter: [],
+	};
+}
+
+function frontmatterValueText(value: FrontmatterValue): string {
+	if (Array.isArray(value)) return JSON.stringify(value);
+	if (value === null) return "null";
+	return String(value);
+}
+
+/**
+ * Start a copied-ticket form from an existing ticket. Everything except the
+ * title is prefilled; the title stays derived from the copied body so the user
+ * can make it unique before creating the new ticket.
+ */
+export function initialNewTicketStateFromTicket(
+	ticket: Ticket,
+): NewTicketFormState {
+	return {
+		...initialNewTicketState(),
+		status: ticket.status === "backlog" ? "backlog" : "open",
+		subdir: ticket.subdir,
+		priority: String(ticket.priority ?? 0),
+		body: ticket.body,
+		frontmatter: Object.entries(ticket.frontmatter).map(([key, value]) => ({
+			key,
+			value: frontmatterValueText(value),
+		})),
 	};
 }
 
@@ -218,6 +246,23 @@ function inferFrontmatterValue(text: string): FrontmatterValue {
 	if (value === "" || value === "~" || value.toLowerCase() === "null") return null;
 	if (/^(true|false)$/i.test(value)) return value.toLowerCase() === "true";
 	if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return Number(value);
+	if (value.startsWith("[") && value.endsWith("]")) {
+		try {
+			const parsed: unknown = JSON.parse(value);
+			if (
+				Array.isArray(parsed) &&
+				parsed.every(
+					(item) =>
+						item === null ||
+						["string", "number", "boolean"].includes(typeof item),
+				)
+			) {
+				return parsed as FrontmatterValue;
+			}
+		} catch {
+			// Not JSON; keep the text so the user can correct it.
+		}
+	}
 	return value;
 }
 
