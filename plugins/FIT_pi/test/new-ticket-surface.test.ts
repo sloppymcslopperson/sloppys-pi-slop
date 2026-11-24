@@ -11,9 +11,11 @@ import {
 	NEW_TICKET_ADD_ROW,
 	NEW_TICKET_REMOVE_ROW,
 	NEW_TICKET_SUBMIT,
+	NEW_TICKET_TITLE_PATTERN,
 	applyNewTicketFormAction,
 	buildNewTicketSurface,
 	initialNewTicketState,
+	normalizedNewTicketTitleState,
 	parseNewTicketAction,
 	prepareNewTicket,
 } from "../src/new-ticket-surface.ts";
@@ -80,7 +82,27 @@ describe("new ticket A2UI form", () => {
 		const title = list.find((component) => component["id"] === "title");
 		assert.equal(title?.["component"], "TextField");
 		assert.deepEqual(title?.["value"], { "@path": "/title" });
-		assert.ok(Array.isArray(title?.["checks"]));
+		const titleChecks = title?.["checks"] as Array<{
+			condition: { "@call": string; args: Record<string, unknown> };
+			message: string;
+		}>;
+		assert.equal(titleChecks.length, 2);
+		assert.equal(
+			titleChecks[0]?.condition.args["pattern"],
+			NEW_TICKET_TITLE_PATTERN,
+		);
+		assert.match(titleChecks[0]?.message ?? "", /letters, digits, spaces, and hyphens/i);
+		assert.match(titleChecks[1]?.message ?? "", /30 characters/);
+		assert.equal(
+			titleChecks.some((check) => check.condition["@call"] === "required"),
+			false,
+		);
+
+		const liveTitlePattern = new RegExp(NEW_TICKET_TITLE_PATTERN);
+		assert.equal(liveTitlePattern.test(""), true);
+		assert.equal(liveTitlePattern.test("My Title"), true);
+		assert.equal(liveTitlePattern.test("my-title 2"), true);
+		assert.equal(liveTitlePattern.test("not/allowed"), false);
 
 		const rows = list.find((component) => component["id"] === "frontmatter_rows");
 		assert.equal(rows?.["component"], "Text");
@@ -231,6 +253,23 @@ describe("new ticket A2UI form", () => {
 		assert.equal(removeAction.event?.context?.["rowIndex"], 1);
 		assert.deepEqual(removeAction.event?.context?.["fmKey1"], { "@path": "/frontmatter/1/key" });
 		assertValid(payload);
+	});
+
+	it("normalizes the displayed title after a failed save", () => {
+		const manual = normalizedNewTicketTitleState({
+			...initialNewTicketState(),
+			title: "Manual Title",
+			titleTouched: true,
+		});
+		assert.equal(manual.title, "manual-title");
+		assert.equal(manual.titleTouched, true);
+
+		const derived = normalizedNewTicketTitleState({
+			...initialNewTicketState(),
+			body: "Fix the broken typo. Details.",
+		});
+		assert.equal(derived.title, "fix-the-broken-typo");
+		assert.equal(derived.titleTouched, false);
 	});
 
 	it("parses action names and prepares normalized create inputs", () => {

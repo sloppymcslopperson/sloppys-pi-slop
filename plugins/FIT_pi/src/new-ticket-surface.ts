@@ -23,6 +23,9 @@ import {
 /** Matches the FIT short-name limit used by createTicket. */
 export const MAX_NEW_TICKET_TITLE_CHARS = 30;
 
+/** Live title input may use letters in any case, digits, spaces, and hyphens. */
+export const NEW_TICKET_TITLE_PATTERN = "^[A-Za-z0-9 -]*$";
+
 const FRONTMATTER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]*$/;
 
 export const NEW_TICKET_ADD_ROW = "add-frontmatter-row";
@@ -98,6 +101,16 @@ export function normalizeNewTicketTitle(value: string): string {
 function titleFromBody(body: string): string {
 	const derived = normalizeNewTicketTitle(deriveTicketName(body));
 	return derived || (body.trim() ? "ticket" : "");
+}
+
+/** Return state with the title normalized for redisplay after a failed save. */
+export function normalizedNewTicketTitleState(
+	state: NewTicketFormState,
+): NewTicketFormState {
+	const title = state.titleTouched
+		? normalizeNewTicketTitle(state.title)
+		: titleFromBody(state.body) || normalizeNewTicketTitle(state.title);
+	return title === state.title ? state : { ...state, title };
 }
 
 function contextString(
@@ -415,9 +428,12 @@ export function buildNewTicketSurface(
 			{
 				condition: {
 					"@call": "regex",
-					args: { value: { "@path": "/title" }, pattern: "^[^A-Z\\s]+$" },
+					args: {
+						value: { "@path": "/title" },
+						pattern: NEW_TICKET_TITLE_PATTERN,
+					},
 				},
-				message: "Use lowercase letters, digits, and hyphens.",
+				message: "Use letters, digits, spaces, and hyphens.",
 			},
 			{
 				condition: {
@@ -425,13 +441,6 @@ export function buildNewTicketSurface(
 					args: { value: { "@path": "/title" }, max: MAX_NEW_TICKET_TITLE_CHARS },
 				},
 				message: `Title must be ${MAX_NEW_TICKET_TITLE_CHARS} characters or fewer.`,
-			},
-			{
-				condition: {
-					"@call": "required",
-					args: { value: { "@path": "/title" } },
-				},
-				message: "Title is required.",
 			},
 		],
 	});

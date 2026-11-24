@@ -68,6 +68,7 @@ import {
 	applyNewTicketFormAction,
 	buildNewTicketSurface,
 	initialNewTicketState,
+	normalizedNewTicketTitleState,
 	parseNewTicketAction,
 	prepareNewTicket,
 } from "./new-ticket-surface.ts";
@@ -3395,7 +3396,10 @@ async function runNewTicketPanel(
 
 		const prepared = prepareNewTicket(state);
 		if (!prepared.ok) {
-			state = { ...state, error: prepared.error };
+			state = {
+				...normalizedNewTicketTitleState(state),
+				error: prepared.error,
+			};
 			continue;
 		}
 
@@ -3417,7 +3421,7 @@ async function runNewTicketPanel(
 			return;
 		} catch (error) {
 			state = {
-				...state,
+				...normalizedNewTicketTitleState(state),
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
