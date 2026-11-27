@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { MessageProcessor } from "@a2ui/web_core";
 import { basicCatalog } from "@a2ui/web_core/catalogs/basic/v1";
 
-import type { BoardMode, Ticket } from "../src/fit.ts";
+import { deriveTicketName, slugify, type BoardMode, type Ticket } from "../src/fit.ts";
 import type { A2uiPanelAction, A2uiPanelPayload } from "../src/a2ui.ts";
 import {
 	MAX_NEW_TICKET_TITLE_CHARS,
@@ -182,6 +182,43 @@ describe("new ticket A2UI form", () => {
 		);
 		assert.equal(state.title, "Manual Title");
 		assert.equal(state.titleTouched, true);
+	});
+
+	it("truncates a body-derived title to the short-name limit", () => {
+		const body =
+			"This is a deliberately verbose title that exceeds the short name limit. Details.";
+		const expectedSlug = slugify(deriveTicketName(body));
+		assert.equal(expectedSlug, "this-is-a-deliberately");
+
+		let state = initialNewTicketState();
+		state = applyNewTicketFormAction(
+			state,
+			action(NEW_TICKET_ADD_ROW, {
+				status: "open",
+				priority: "0",
+				title: "",
+				body,
+			}),
+		);
+		assert.equal(state.title, expectedSlug);
+		assert.ok(Array.from(state.title).length <= MAX_NEW_TICKET_TITLE_CHARS);
+
+		const prepared = prepareNewTicket(state);
+		assert.equal(prepared.ok, true);
+		if (prepared.ok) {
+			assert.equal(prepared.values.slug, expectedSlug);
+			assert.ok(Array.from(prepared.values.slug).length <= MAX_NEW_TICKET_TITLE_CHARS);
+		}
+
+		const hardCut = prepareNewTicket({
+			...initialNewTicketState(),
+			body: "Supercalifragilisticexpialidocious is a long first word. More.",
+		});
+		assert.equal(hardCut.ok, true);
+		if (hardCut.ok) {
+			assert.equal(hardCut.values.slug, "supercalifragilisticexpialidoc");
+			assert.ok(Array.from(hardCut.values.slug).length <= MAX_NEW_TICKET_TITLE_CHARS);
+		}
 	});
 
 	it("adds and removes frontmatter rows while preserving current values", () => {

@@ -16,6 +16,7 @@ import {
 import {
 	MAX_PRIORITY,
 	deriveTicketName,
+	slugify,
 	type BoardMode,
 	type FrontmatterValue,
 	type Ticket,
@@ -127,8 +128,9 @@ export function normalizeNewTicketTitle(value: string): string {
 }
 
 function titleFromBody(body: string): string {
-	const derived = normalizeNewTicketTitle(deriveTicketName(body));
-	return derived || (body.trim() ? "ticket" : "");
+	// Use the same truncation rule as createTicket so a derived title always
+	// fits the short-name limit without turning into a validation error.
+	return body.trim() ? slugify(deriveTicketName(body)) : "";
 }
 
 /** Return state with the title normalized for redisplay after a failed save. */
